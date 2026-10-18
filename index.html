@@ -13,10 +13,12 @@ html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
 body{margin:0;height:100%;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;line-height:1.4;overflow:hidden}
 .top{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--rule)}
 .top h1{font-size:16px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-button{font:inherit;font-size:14px;min-height:40px;min-width:40px;padding:0 12px;border:1px solid var(--rule);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
+[hidden]{display:none!important}
+button,.btn{font:inherit;font-size:14px;min-height:40px;min-width:40px;padding:0 12px;border:1px solid var(--rule);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
 button.on{background:var(--soft);border-color:var(--meas);color:var(--meas);font-weight:700}
 button.p{background:var(--meas);border-color:var(--meas);color:#fff;font-weight:700}
 button.danger{color:var(--bad)}
+.btn{display:inline-flex;align-items:center;text-decoration:none;font-size:14px;min-height:40px;padding:0 12px;border:1px solid var(--meas);border-radius:8px;color:var(--meas);font-weight:700}
 button:focus-visible,input:focus-visible{outline:2px solid var(--meas);outline-offset:1px}
 .plan{flex:1;min-height:0;position:relative;background:#fff}
 svg{display:block;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -28,7 +30,7 @@ svg{display:block;width:100%;height:100%;touch-action:none;user-select:none;-web
 .row{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:flex-end}
 label{display:flex;flex-direction:column;font-size:12px;color:var(--sub);gap:2px;flex:1;min-width:76px}
 label.n{flex:2;min-width:110px}
-input[type=text],input[type=number]{font:inherit;font-size:16px;min-height:42px;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--bg);color:var(--ink);width:100%}
+input[type=text],input[type=number],input[type=url]{font:inherit;font-size:16px;min-height:42px;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--bg);color:var(--ink);width:100%}
 .pad{display:flex;gap:4px;margin-left:auto}
 .sm{font-size:12px;color:var(--sub);margin-top:6px}
 .ttl{font-size:13px;font-weight:700;margin-top:2px}
@@ -42,11 +44,23 @@ input[type=text],input[type=number]{font:inherit;font-size:16px;min-height:42px;
 .f.s rect{stroke:var(--meas);stroke-width:40}
 .f.bad rect{stroke:var(--bad)}
 .f text{fill:#16232e;text-anchor:middle;pointer-events:none;font-family:inherit}
+.wb{fill:#f4f6f8;stroke:#c3ccd4;stroke-width:24;stroke-dasharray:120 80}
+.wbt{fill:#7a8a96;font-size:260px;font-weight:700;font-family:inherit}
+.b{cursor:grab}
+.b text{pointer-events:none;font-family:inherit}
+.bf{fill:#fff}
+.bo{fill:none;stroke:#9aa8b3;stroke-width:20}
+.bf.bo{fill:#fff}
+.b.s .bo{stroke:#0a5bb5;stroke-width:45}
+.bt{fill:#16232e}
+.bs{fill:#5b6b78}
+.bh{fill:#0a5bb5;stroke:#fff;stroke-width:12;cursor:nwse-resize}
 </style></head>
 <body>
 <header class="top"><h1>실측 평면도</h1>
-<button id="sn" class="on" title="50mm 단위로 맞춤">맞춤</button><button id="fit">전체</button><button id="zo" aria-label="축소">−</button><button id="zi" aria-label="확대">＋</button></header>
+<button id="sn" class="on" title="50mm 단위로 맞춤">맞춤</button><button id="fit">전체</button><button id="wbb" title="사진·링크 모아두는 곳">작업대</button><button id="zo" aria-label="축소">−</button><button id="zi" aria-label="확대">＋</button></header>
 <div class="plan" id="pw"><svg id="p" viewBox="-739 -5693 14381 11032" role="img" aria-label="실측 평면도"></svg><div class="hint">두 손가락 확대 · 빈 곳 끌어서 이동</div></div>
+<input type="file" id="fi" accept="image/*" multiple hidden>
 <section class="dock"><div class="list" id="ls"></div><div id="pn"></div></section>
 <script>
 const S=document.getElementById('p'),NS='http://www.w3.org/2000/svg',$=id=>document.getElementById(id);
@@ -71,8 +85,14 @@ ob(8590,-2758,770,1640,'ob','냉장고','1625~1640',120);
 ob(5680,-2915,965,700,'ob','965','수납 없음',130);
 ob(6645,-2915,955,700,'ob2','수납 구간','길이 개략',110);
 
+// ---- 작업대 (도면 오른쪽, 사진·링크 모아두는 곳) ----
+const WB={x:14100,y:-5693,w:13000,h:11032};
+el('rect',{x:WB.x,y:WB.y,width:WB.w,height:WB.h,rx:120,class:'wb'});
+el('text',{x:WB.x+320,y:WB.y+460,class:'wbt'},null,'작업대 · 살 가구 사진·링크 모아두기');
+const BL=el('g',{});
+
 // ---- 가구 ----
-let F=[],sel=null,uid=1,addOpen=false,snap=true;const G=new Map();
+let F=[],sel=null,uid=1,addOpen=false,lnOpen=false,snap=true;const G=new Map();
 try{const d=JSON.parse(localStorage.getItem('furn')||'[]');if(Array.isArray(d)){F=d.filter(f=>f&&f.w>0&&f.h>0);uid=F.reduce((m,f)=>Math.max(m,f.id),0)+1}}catch(e){}
 const layer=el('g',{});
 const save=()=>{try{localStorage.setItem('furn',JSON.stringify(F))}catch(e){}};
@@ -95,7 +115,7 @@ function mark(){F.forEach(f=>{const g=G.get(f.id);if(g)g.setAttribute('class','f
 function drag(e,id){
  e.stopPropagation();e.preventDefault();
  const f=F.find(f=>f.id===id),g=G.get(id);
- if(sel!==id||addOpen){sel=id;addOpen=false;mark();dock()}
+ if(sel!==id||addOpen||lnOpen||bsel!=null){sel=id;addOpen=false;lnOpen=false;bclear();mark();dock()}
  const p=pt(e),ox=p.x-f.x,oy=p.y-f.y;
  try{g.setPointerCapture(e.pointerId)}catch(_){}
  const mv=ev=>{const q=pt(ev);f.x=sn(q.x-ox);f.y=sn(q.y-oy);g.setAttribute('transform',`translate(${f.x} ${f.y})`);pos()};
@@ -103,18 +123,131 @@ function drag(e,id){
  g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
 }
 function pos(){const f=cur(),i=$('pos');if(f&&i)i.textContent=`위치 x ${f.x} · y ${f.y} (도면 왼쪽 위 기준, mm)`}
-function select(id){sel=id;addOpen=false;mark();dock()}
+function select(id){sel=id;addOpen=false;lnOpen=false;bclear();mark();dock()}
+// ---- 작업대 항목: 사진·링크 ----
+let B=[],bsel=null,buid=1;const BG=new Map(),IM=new Map();
+try{const d=JSON.parse(localStorage.getItem('board')||'[]');if(Array.isArray(d)){B=d.filter(b=>b&&b.w>0&&b.h>0&&(b.k==='img'||b.k==='link'));buid=B.reduce((m,b)=>Math.max(m,b.id),0)+1}}catch(e){}
+const bsave=()=>{try{localStorage.setItem('board',JSON.stringify(B));return true}catch(e){return false}};
+const bcur=()=>B.find(b=>b.id===bsel);
+// 사진은 용량이 커서 IndexedDB에 따로 보관
+const idb=(m,k,val)=>new Promise((res,rej)=>{try{const q=indexedDB.open('song-board',1);q.onupgradeneeded=()=>q.result.createObjectStore('img');q.onerror=()=>rej(q.error);q.onsuccess=()=>{const t=q.result.transaction('img',m==='get'?'readonly':'readwrite'),st=t.objectStore('img'),r=m==='get'?st.get(k):m==='put'?st.put(val,k):st.delete(k);t.oncomplete=()=>res(r.result);t.onerror=()=>rej(t.error)}}catch(e){rej(e)}});
+const URL_RE=/https?:\/\/[^\s<>"']+/i;
+const nurl=u=>{u=String(u||'').trim();if(!u)return'';if(!/^[a-z][a-z0-9+.-]*:/i.test(u))u='https://'+u;try{const x=new URL(u);return/^https?:$/.test(x.protocol)?x.href:''}catch(e){return''}};
+const host=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){return u||''}};
+const tw=t=>[...t].reduce((s,c)=>s+(c.charCodeAt(0)>255?1:.58),0);
+function clip(t,w,fs){t=String(t||'');if(tw(t)*fs<=w)return t;const a=[...t];while(a.length&&tw(a.join('')+'…')*fs>w)a.pop();return a.join('')+'…'}
+const chipT=b=>(b.k==='img'?'📷 ':'🔗 ')+(b.n||(b.k==='img'?'사진':host(b.u)||'링크'));
+const hs=()=>{const r=box();return r.width?v.w/r.width*30:300};
+function bdraw(b){
+ let g=BG.get(b.id);
+ if(!g){g=el('g',{},BL);BG.set(b.id,g);g.addEventListener('pointerdown',e=>bdrag(e,b.id))}
+ g.innerHTML='';g.setAttribute('transform',`translate(${b.x} ${b.y})`);g.setAttribute('class','b'+(b.id===bsel?' s':''));
+ if(b.k==='img'){
+  const fs=Math.max(110,Math.min(300,b.w/14));
+  el('rect',{width:b.w,height:b.h,class:'bf'},g);
+  const src=IM.get(b.id);
+  if(src)el('image',{href:src,width:b.w,height:b.h,preserveAspectRatio:'none'},g);
+  else el('text',{x:b.w/2,y:b.h/2,'font-size':fs,class:'bs','text-anchor':'middle'},g,'사진 불러오는 중');
+  el('rect',{width:b.w,height:b.h,class:'bo'},g);
+  const cap=[b.n,b.m].filter(Boolean).join(' · ')||host(b.u);
+  if(cap)el('text',{x:0,y:b.h+fs*1.15,'font-size':fs,'font-weight':700,class:'bt'},g,clip((b.u?'🔗 ':'')+cap,b.w,fs));
+ }else{
+  const fs=Math.max(110,Math.min(320,b.h/4.4)),p=fs*.8;let y=p+fs;
+  el('rect',{width:b.w,height:b.h,rx:80,class:'bf bo'},g);
+  el('text',{x:p,y,'font-size':fs,'font-weight':700,class:'bt'},g,clip('🔗 '+(b.n||'링크'),b.w-2*p,fs));
+  y+=fs*1.25;if(y<b.h-p/3)el('text',{x:p,y,'font-size':fs*.8,class:'bs'},g,clip(host(b.u),b.w-2*p,fs*.8));
+  y+=fs*1.15;if(b.m&&y<b.h-p/3)el('text',{x:p,y,'font-size':fs*.85,class:'bt'},g,clip(b.m,b.w-2*p,fs*.85));
+ }
+ if(b.id===bsel){const r=hs();el('rect',{x:b.w-r/2,y:b.h-r/2,width:r,height:r,rx:r*.25,class:'bh'},g).addEventListener('pointerdown',e=>bresize(e,b.id))}
+}
+function bhd(){const b=bcur(),h=b&&BG.get(b.id).querySelector('.bh');if(!h)return;const r=hs();h.setAttribute('x',b.w-r/2);h.setAttribute('y',b.h-r/2);h.setAttribute('width',r);h.setAttribute('height',r);h.setAttribute('rx',r*.25)}
+function bclear(){if(bsel==null)return;const o=bcur();bsel=null;if(o)bdraw(o)}
+function bselect(id,go){
+ const o=bcur();bsel=id;sel=null;addOpen=false;lnOpen=false;mark();if(o&&o.id!==id)bdraw(o);
+ const b=bcur();if(b){BL.appendChild(BG.get(id));B=B.filter(x=>x!==b).concat(b);bsave();bdraw(b);if(go)reveal(b)}
+ dock();
+}
+function bmove(e,b,mv){
+ const g=BG.get(b.id);
+ try{g.setPointerCapture(e.pointerId)}catch(_){}
+ const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);bsave()};
+ g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
+}
+function bdrag(e,id){
+ e.stopPropagation();e.preventDefault();
+ if(bsel!==id||sel||addOpen||lnOpen)bselect(id);
+ const b=bcur();if(!b)return;const g=BG.get(id),p=pt(e),ox=p.x-b.x,oy=p.y-b.y;
+ bmove(e,b,ev=>{const q=pt(ev);b.x=Math.round(q.x-ox);b.y=Math.round(q.y-oy);g.setAttribute('transform',`translate(${b.x} ${b.y})`)});
+}
+function bresize(e,id){
+ e.stopPropagation();e.preventDefault();
+ const b=B.find(b=>b.id===id);if(!b)return;const r=b.h/b.w;
+ bmove(e,b,ev=>{const q=pt(ev);b.w=Math.max(400,Math.round(q.x-b.x));b.h=b.k==='img'?Math.round(b.w*r):Math.max(500,Math.round(q.y-b.y));bdraw(b)});
+}
+function spot(w,h,i){
+ const cx=v.x+v.w/2,cy=v.y+v.h/2;
+ if(cx>WB.x&&cx<WB.x+WB.w&&cy>WB.y&&cy<WB.y+WB.h)return{x:Math.round(cx-w/2+i*300),y:Math.round(cy-h/2+i*300)};
+ const n=B.length+i;return{x:WB.x+400+(n%3)*4200,y:WB.y+900+(Math.floor(n/3)%3)*3400};
+}
+function reveal(b){const cx=b.x+b.w/2,cy=b.y+b.h/2;if(cx>v.x&&cx<v.x+v.w&&cy>v.y&&cy<v.y+v.h)return;if(cx>WB.x&&cx<WB.x+WB.w&&cy>WB.y&&cy<WB.y+WB.h)fit(WB);else{v.x=cx-v.w/2;v.y=cy-v.h/2;ap()}}
+function shrink(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),im=new Image();
+ im.onload=()=>{const k=Math.min(1,1600/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.naturalWidth*k));c.height=Math.max(1,Math.round(im.naturalHeight*k));const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res({s:c.toDataURL('image/jpeg',.82),w:c.width,h:c.height})};
+ im.onerror=()=>{URL.revokeObjectURL(u);rej()};im.src=u})}
+async function addPhoto(file,i=0){
+ if(!file||!/^image\//.test(file.type))return;
+ let r;try{r=await shrink(file)}catch(e){alert('사진을 열 수 없어요.');return}
+ try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
+ const w=3200,h=Math.round(w*r.h/r.w),p=spot(w,h,i),b={id:buid++,k:'img',x:p.x,y:p.y,w,h,n:'',u:'',m:''};
+ IM.set(b.id,r.s);
+ try{await idb('put',b.id,r.s)}catch(e){b.src=r.s}
+ B.push(b);bdraw(b);
+ if(!bsave()){delete b.src;bsave();alert('저장 공간이 부족해서 이 사진은 새로고침하면 사라질 수 있어요.')}
+ bselect(b.id,true);
+}
+function addLink(u,n,m){
+ const k=String(u||'').match(URL_RE);u=nurl(k?k[0]:u);
+ if(!u){alert('링크 주소를 확인해 주세요.');return}
+ const w=3600,h=1500,p=spot(w,h,0),b={id:buid++,k:'link',x:p.x,y:p.y,w,h,n:String(n||'').slice(0,40)||host(u),u,m:String(m||'').slice(0,60)};
+ B.push(b);bdraw(b);bsave();bselect(b.id,true);
+}
+function loadImgs(){B.forEach(b=>{if(b.k!=='img')return;if(b.src){IM.set(b.id,b.src);bdraw(b)}else idb('get',b.id).then(s=>{if(s){IM.set(b.id,s);bdraw(b)}}).catch(()=>{})})}
+const fi=$('fi');fi.onchange=()=>{[...fi.files].forEach((f,i)=>addPhoto(f,i));fi.value=''};
 // ---- 하단 패널 ----
 const PRE=[['식탁',2000,800],['퀸 침대',1500,2000],['3인 소파',2100,900],['옷장',1800,600],['책상',1200,600],['냉장고',900,800],['세탁기',600,650]];
 function dock(){
- $('ls').innerHTML='<button class="chip add" data-a="add">＋ 가구 추가</button>'+F.map(f=>`<button class="chip${f.id===sel?' on':''}" data-id="${f.id}">${esc(f.n)}</button>`).join('');
- const pn=$('pn'),f=cur();
+ $('ls').innerHTML='<button class="chip add" data-a="add">＋ 가구 추가</button><button class="chip add" data-a="photo">＋ 사진</button><button class="chip add" data-a="link">＋ 링크</button>'+F.map(f=>`<button class="chip${f.id===sel?' on':''}" data-id="${f.id}">${esc(f.n)}</button>`).join('')+B.map(b=>`<button class="chip${b.id===bsel?' on':''}" data-b="${b.id}">${esc(chipT(b))}</button>`).join('');
+ const pn=$('pn'),f=cur(),bc=bcur();
  if(addOpen){
   pn.innerHTML=`<div class="ttl">새 가구</div><div class="row">${PRE.map(([n,w,d],i)=>`<button class="chip" data-pre="${i}">${n} ${w}×${d}</button>`).join('')}</div>
   <div class="row"><label class="n">이름<input type="text" id="an" value="${esc(addv.n)}"></label><label>가로 mm<input type="number" id="aw" value="${addv.w}" inputmode="numeric"></label><label>세로 mm<input type="number" id="ah" value="${addv.h}" inputmode="numeric"></label></div>
   <div class="row"><button class="p" id="ok" style="flex:1">도면에 추가</button><button id="cx">닫기</button></div>`;
   ['an','aw','ah'].forEach(k=>$(k).oninput=()=>{addv={n:$('an').value,w:$('aw').value,h:$('ah').value}});
   $('ok').onclick=()=>add($('an').value.trim(),$('aw').value,$('ah').value);$('cx').onclick=()=>{addOpen=false;dock()};
+ }else if(lnOpen){
+  pn.innerHTML=`<div class="ttl">상품 링크 추가</div>
+  <div class="row"><label class="n">링크 주소<input type="url" id="lu" inputmode="url" placeholder="쇼핑 앱 공유 문구 그대로 붙여넣어도 돼요"></label></div>
+  <div class="row"><label class="n">이름<input type="text" id="ln" maxlength="40" placeholder="예: 원목 식탁"></label><label class="n">메모<input type="text" id="lm" maxlength="60" placeholder="가격·색상 등"></label></div>
+  <div class="row"><button class="p" id="lok" style="flex:1">작업대에 추가</button><button id="lcx">닫기</button></div>`;
+  $('lu').oninput=()=>{const t=$('lu').value,m=t.match(URL_RE);if(m&&m[0]!==t.trim()){if(!$('ln').value)$('ln').value=t.replace(m[0],' ').replace(/\s+/g,' ').trim().slice(0,40);$('lu').value=m[0]}};
+  $('lok').onclick=()=>addLink($('lu').value,$('ln').value.trim(),$('lm').value.trim());$('lcx').onclick=()=>{lnOpen=false;dock()};
+  $('lu').focus();
+ }else if(bc){
+  const im=bc.k==='img';
+  pn.innerHTML=`<div class="ttl"><b>${im?'사진':'링크'}</b> 수정</div>
+  <div class="row"><label class="n">이름<input type="text" id="bn" maxlength="40" placeholder="예: 원목 식탁"></label><label class="n">메모<input type="text" id="bm" maxlength="60" placeholder="가격·색상 등"></label></div>
+  <div class="row"><label class="n">상품 링크<input type="url" id="bu" inputmode="url" placeholder="https://…"></label></div>
+  <div class="row"><button id="bsm">작게</button><button id="bbg">크게</button><a class="btn" id="bo" target="_blank" rel="noopener noreferrer">링크 열기 ↗</a><button id="bd" class="danger">삭제</button></div>
+  <div class="sm" id="bi">오른쪽 아래 파란 네모를 끌면 크기가 바뀌어요.${im?' 사진에 상품 링크를 붙여둘 수 있어요.':''}</div>`;
+  $('bn').value=bc.n||'';$('bm').value=bc.m||'';$('bu').value=bc.u||'';
+  const lk=()=>{const a=$('bo');a.hidden=!bc.u;if(bc.u)a.href=bc.u},chip=()=>{const c=$('ls').querySelector('.chip.on');if(c)c.textContent=chipT(bc)};lk();
+  $('bn').oninput=e=>{bc.n=e.target.value.slice(0,40);bdraw(bc);bsave();chip()};
+  $('bm').oninput=e=>{bc.m=e.target.value.slice(0,60);bdraw(bc);bsave()};
+  $('bu').onchange=e=>{const raw=e.target.value,m=raw.match(URL_RE),u=nurl(m?m[0]:raw);if(raw.trim()&&!u){$('bi').textContent='링크 주소를 확인해 주세요 (https://로 시작).';return}
+   if(m&&!bc.n){bc.n=raw.replace(m[0],' ').replace(/\s+/g,' ').trim().slice(0,40);$('bn').value=bc.n}
+   bc.u=u;e.target.value=u;bdraw(bc);bsave();lk();chip()};
+  const sc=k=>{k=Math.max(k,400/bc.w);const cx=bc.x+bc.w/2,cy=bc.y+bc.h/2;bc.w=Math.round(bc.w*k);bc.h=Math.round(bc.h*k);bc.x=Math.round(cx-bc.w/2);bc.y=Math.round(cy-bc.h/2);bdraw(bc);bsave()};
+  $('bsm').onclick=()=>sc(.8);$('bbg').onclick=()=>sc(1.25);
+  $('bd').onclick=()=>{B=B.filter(o=>o!==bc);BG.get(bc.id).remove();BG.delete(bc.id);IM.delete(bc.id);if(bc.k==='img')idb('del',bc.id).catch(()=>{});bsel=null;bsave();dock()};
  }else if(f){
   pn.innerHTML=`<div class="ttl"><b id="tt">${esc(f.n)}</b> 수정</div>
   <div class="row"><label class="n">이름<input type="text" id="en" value="${esc(f.n)}"></label><label>가로 mm<input type="number" id="ew" value="${f.w}" inputmode="numeric"></label><label>세로 mm<input type="number" id="eh" value="${f.h}" inputmode="numeric"></label></div>
@@ -129,36 +262,42 @@ function dock(){
   $('cp').onclick=()=>{const c={...f,id:uid++,x:f.x+200,y:f.y+200};F.push(c);draw(c);save();select(c.id)};
   $('dl').onclick=()=>{F=F.filter(o=>o!==f);G.get(f.id).remove();G.delete(f.id);sel=null;save();mark();dock()};
   pn.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{const[dx,dy]=b.dataset.n.split(',').map(Number);f.x+=dx;f.y+=dy;draw(f);save();pos()});
- }else pn.innerHTML=F.length?'<div class="sm">가구를 탭하면 크기·이름을 수정할 수 있어요.</div>':'<div class="sm">＋ 가구 추가를 눌러 이름과 가로·세로(mm)를 입력하세요.</div>';
+ }else pn.innerHTML=(F.length?'<div class="sm">가구를 탭하면 크기·이름을 수정할 수 있어요.</div>':'<div class="sm">＋ 가구 추가를 눌러 이름과 가로·세로(mm)를 입력하세요.</div>')+'<div class="sm">＋ 사진·＋ 링크로 살 가구 후보를 도면 오른쪽 작업대에 모아둘 수 있어요.</div>';
 }
 let addv={n:'식탁',w:2000,h:800};
 function add(n,w,h){
  const f={id:uid++,n:(n||'가구').slice(0,20),w:Math.max(50,+w||0),h:Math.max(50,+h||0),x:7400-(+w||500)/2|0,y:1500-(+h||500)/2|0};
  f.x=sn(f.x);f.y=sn(f.y);F.push(f);draw(f);save();select(f.id);
 }
-$('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.a){addOpen=true;sel=null;mark();dock()}else select(+b.dataset.id)};
+$('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;if(a==='photo')return fi.click();if(a){addOpen=a==='add';lnOpen=a==='link';sel=null;bclear();mark();dock()}else if(b.dataset.b)bselect(+b.dataset.b,true);else select(+b.dataset.id)};
 $('pn').onclick=e=>{const b=e.target.closest('[data-pre]');if(!b)return;const[n,w,d]=PRE[+b.dataset.pre];addv={n,w,h:d};$('an').value=n;$('aw').value=w;$('ah').value=d};
 $('sn').onclick=e=>{snap=!snap;e.currentTarget.classList.toggle('on',snap)};
 // ---- 확대·이동 ----
 const BB={x:-739,y:-5693,w:14381,h:11032};
 let v={x:BB.x,y:BB.y,w:BB.w,h:BB.h};
 const box=()=>S.getBoundingClientRect();
-const ap=()=>S.setAttribute('viewBox',`${v.x} ${v.y} ${v.w} ${v.h}`);
-function fit(){const r=box();if(!r.width)return;const k=Math.max(BB.w/r.width,BB.h/r.height);v.w=r.width*k;v.h=r.height*k;v.x=BB.x+BB.w/2-v.w/2;v.y=BB.y+BB.h/2-v.h/2;ap()}
-function zoomAt(f,cx,cy){const r=box(),nw=Math.min(24000,Math.max(2500,v.w*f)),k=nw/v.w;const mx=v.x+(cx-r.left)/r.width*v.w,my=v.y+(cy-r.top)/r.height*v.h;v.x=mx-(mx-v.x)*k;v.y=my-(my-v.y)*k;v.w=nw;v.h=v.h*k;ap()}
+const ap=()=>{S.setAttribute('viewBox',`${v.x} ${v.y} ${v.w} ${v.h}`);bhd()};
+function fit(R=BB){const r=box();if(!r.width)return;const k=Math.max(R.w/r.width,R.h/r.height);v.w=r.width*k;v.h=r.height*k;v.x=R.x+R.w/2-v.w/2;v.y=R.y+R.h/2-v.h/2;ap()}
+function zoomAt(f,cx,cy){const r=box(),nw=Math.min(40000,Math.max(2500,v.w*f)),k=nw/v.w;const mx=v.x+(cx-r.left)/r.width*v.w,my=v.y+(cy-r.top)/r.height*v.h;v.x=mx-(mx-v.x)*k;v.y=my-(my-v.y)*k;v.w=nw;v.h=v.h*k;ap()}
 const ctr=f=>{const r=box();zoomAt(f,r.left+r.width/2,r.top+r.height/2)};
-$('zi').onclick=()=>ctr(1/1.3);$('zo').onclick=()=>ctr(1.3);$('fit').onclick=fit;
+$('zi').onclick=()=>ctr(1/1.3);$('zo').onclick=()=>ctr(1.3);$('fit').onclick=()=>fit();$('wbb').onclick=()=>fit(WB);
 const P=new Map();let g0=null;
 document.querySelector('.hint').style.transition='opacity .6s';
-S.addEventListener('pointerdown',e=>{document.querySelector('.hint').style.opacity=0;if(e.target.closest('.f'))return;try{S.setPointerCapture(e.pointerId)}catch(_){}P.set(e.pointerId,{x:e.clientX,y:e.clientY});if(P.size===1)g0={moved:false,sx:e.clientX,sy:e.clientY}});
+S.addEventListener('pointerdown',e=>{document.querySelector('.hint').style.opacity=0;if(e.target.closest('.f,.b'))return;try{S.setPointerCapture(e.pointerId)}catch(_){}P.set(e.pointerId,{x:e.clientX,y:e.clientY});if(P.size===1)g0={moved:false,sx:e.clientX,sy:e.clientY}});
 S.addEventListener('pointermove',e=>{
  const p=P.get(e.pointerId);if(!p)return;const r=box(),n={x:e.clientX,y:e.clientY};
  if(P.size===1){if(Math.hypot(n.x-g0.sx,n.y-g0.sy)>6)g0.moved=true;if(g0.moved){v.x-=(n.x-p.x)*v.w/r.width;v.y-=(n.y-p.y)*v.h/r.height;ap()}}
  else if(P.size===2){g0.moved=true;const o=[...P].find(([k])=>k!==e.pointerId)[1];const d0=Math.hypot(p.x-o.x,p.y-o.y),d1=Math.hypot(n.x-o.x,n.y-o.y);if(d0&&d1)zoomAt(d0/d1,(n.x+o.x)/2,(n.y+o.y)/2)}
  P.set(e.pointerId,n)});
-const end=e=>{if(P.delete(e.pointerId)&&!P.size&&g0&&!g0.moved&&sel){sel=null;mark();dock()}};
+const end=e=>{if(P.delete(e.pointerId)&&!P.size&&g0&&!g0.moved&&(sel||bsel!=null)){sel=null;bclear();mark();dock()}};
 S.addEventListener('pointerup',end);S.addEventListener('pointercancel',end);
 S.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.deltaY>0?1.15:1/1.15,e.clientX,e.clientY)},{passive:false});
 try{new ResizeObserver(()=>{const r=box();if(r.width){v.h=v.w*r.height/r.width;ap()}}).observe(S)}catch(e){}
-F.forEach(draw);dock();fit();
+// 붙여넣기(사진·링크) · 사진 끌어놓기
+document.addEventListener('paste',e=>{const t=e.target;if(t&&t.matches&&t.matches('input,textarea'))return;const d=e.clipboardData;if(!d)return;
+ const fs=[...d.files].filter(f=>/^image\//.test(f.type));if(fs.length){e.preventDefault();fs.forEach((f,i)=>addPhoto(f,i));return}
+ const s=d.getData('text')||'',m=s.match(URL_RE);if(m){e.preventDefault();addLink(m[0],s.replace(m[0],' ').replace(/\s+/g,' ').trim(),'')}});
+$('pw').addEventListener('dragover',e=>e.preventDefault());
+$('pw').addEventListener('drop',e=>{e.preventDefault();const dt=e.dataTransfer,fs=[...dt.files].filter(f=>/^image\//.test(f.type));if(fs.length)return fs.forEach((f,i)=>addPhoto(f,i));const s=dt.getData('text/uri-list')||dt.getData('text');if(URL_RE.test(s))addLink(s,'','')});
+F.forEach(draw);B.forEach(bdraw);loadImgs();dock();fit();
 </script></body></html>
