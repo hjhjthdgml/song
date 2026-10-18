@@ -1,0 +1,10 @@
+rules_version = '2';
+// 동기화 코드(16자 이상)를 아는 기기만 그 방의 데이터를 읽고 쓸 수 있음.
+// 방 목록은 조회할 수 없어서 코드를 모르면 접근 불가.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{room}/{rest=**} {
+      allow read, write: if room.size() >= 16 && room.size() <= 64;
+    }
+  }
+}

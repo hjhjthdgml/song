@@ -55,12 +55,28 @@ input[type=text],input[type=number],input[type=url]{font:inherit;font-size:16px;
 .bt{fill:#16232e}
 .bs{fill:#5b6b78}
 .bh{fill:#0a5bb5;stroke:#fff;stroke-width:12;cursor:nwse-resize}
+.pc{fill:#0a5bb5;stroke:#fff;stroke-width:3}
+.b.s .pc{fill:#d4691e}
+.pl{fill:#16232e;paint-order:stroke;stroke:#fff;stroke-width:3.5;stroke-linejoin:round}
+.sy{position:relative;padding:0 10px}
+.sy svg{width:22px;height:22px;display:block;margin:auto}
+.sy::after{content:'';position:absolute;right:5px;top:6px;width:8px;height:8px;border-radius:50%;background:#9aa8b3}
+.sy[data-s=ok]::after{background:#2e9d5b}.sy[data-s=pend]::after,.sy[data-s=conn]::after{background:#e8a317}
+.sy[data-s=err]::after,.sy[data-s=full]::after{background:var(--bad)}.sy[data-s=local]::after{display:none}
+.ttl.gap{margin-top:14px}
+.trow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--rule);font-size:14px}
+.trow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.th{display:block;max-width:100%;max-height:140px;border-radius:8px;margin-top:6px;cursor:zoom-in}
+.ov{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:12px}
+.ov img{max-width:100%;max-height:100%}
+@media (max-width:400px){.top{gap:4px}.top h1{font-size:0}.top button{padding:0 9px}}
 </style></head>
 <body>
 <header class="top"><h1>실측 평면도</h1>
-<button id="sn" class="on" title="50mm 단위로 맞춤">맞춤</button><button id="fit">전체</button><button id="wbb" title="사진·링크 모아두는 곳">작업대</button><button id="zo" aria-label="축소">−</button><button id="zi" aria-label="확대">＋</button></header>
+<button id="sn" class="on" title="50mm 단위로 맞춤">맞춤</button><button id="fit">전체</button><button id="wbb" title="사진·링크 모아두는 곳">작업대</button><button id="zo" aria-label="축소">−</button><button id="zi" aria-label="확대">＋</button><button id="sy" class="sy" aria-label="저장·동기화"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18.5h10.2a4.3 4.3 0 0 0 .6-8.55A6.2 6.2 0 0 0 5.9 9.4 4.6 4.6 0 0 0 7 18.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></header>
 <div class="plan" id="pw"><svg id="p" viewBox="-739 -5693 14381 11032" role="img" aria-label="실측 평면도"></svg><div class="hint">두 손가락 확대 · 빈 곳 끌어서 이동</div></div>
-<input type="file" id="fi" accept="image/*" multiple hidden>
+<input type="file" id="fi" accept="image/*" multiple hidden><input type="file" id="bkf" accept="application/json,.json" hidden>
+<div class="ov" id="ov" hidden><img id="ovi" alt="크게 보기"></div>
 <section class="dock"><div class="list" id="ls"></div><div id="pn"></div></section>
 <script>
 const S=document.getElementById('p'),NS='http://www.w3.org/2000/svg',$=id=>document.getElementById(id);
@@ -91,13 +107,30 @@ el('rect',{x:WB.x,y:WB.y,width:WB.w,height:WB.h,rx:120,class:'wb'});
 el('text',{x:WB.x+320,y:WB.y+460,class:'wbt'},null,'작업대 · 살 가구 사진·링크 모아두기');
 const BL=el('g',{});
 
+// ---- 데이터: 가구(F) · 작업대 사진·링크(B) · 휴지통(T) ----
+// 항목마다 t(마지막 수정 시각)를 두고 기기 저장과 Firebase 동기화에 함께 씀
+const FIELDS=['k','n','w','h','x','y','u','m','z','pin','d','t'];
+const nid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const ld=k=>{try{const d=JSON.parse(localStorage.getItem(k)||'[]');return Array.isArray(d)?d.filter(o=>o&&o.w>0&&o.h>0):[]}catch(e){return[]}};
+const F=ld('furn'),B=ld('board').filter(b=>b.k==='img'||b.k==='link'),T=ld('trash');
+F.forEach(f=>{f.k='f';f.n=String(f.n||'가구')});
+// 예전 숫자 id → 기기끼리 겹치지 않는 문자열 id (사진은 ok에 옛 키를 남겨 옮겨 옴)
+[...F,...B,...T].forEach(o=>{if(typeof o.id!=='string'){if(o.k==='img')o.ok=o.id;o.id=nid()}});
+let sel=null,bsel=null,busy=null,addOpen=false,lnOpen=false,cfgOpen=false,undo=null,snap=true;
+const G=new Map(),BG=new Map(),IM=new Map(),LO=new Set();
+const layer=el('g',{}),PL=el('g',{});
+const all=()=>[...F,...B,...T];
+const find=id=>all().find(o=>o.id===id);
+const zs=(a,b)=>(a.z||0)-(b.z||0);
+const pick=o=>{const r={};FIELDS.forEach(k=>{if(o[k]!==undefined)r[k]=o[k]});return r};
+const persist=()=>{try{localStorage.setItem('furn',JSON.stringify(F));localStorage.setItem('board',JSON.stringify(B));localStorage.setItem('trash',JSON.stringify(T));return true}catch(e){status('full');return false}};
+let ft=0;
+const save=()=>{const ok=persist();clearTimeout(ft);ft=setTimeout(flush,300);return ok};
+const upd=o=>{o.t=Date.now();return save()};
+
 // ---- 가구 ----
-let F=[],sel=null,uid=1,addOpen=false,lnOpen=false,snap=true;const G=new Map();
-try{const d=JSON.parse(localStorage.getItem('furn')||'[]');if(Array.isArray(d)){F=d.filter(f=>f&&f.w>0&&f.h>0);uid=F.reduce((m,f)=>Math.max(m,f.id),0)+1}}catch(e){}
-const layer=el('g',{});
-const save=()=>{try{localStorage.setItem('furn',JSON.stringify(F))}catch(e){}};
 const cur=()=>F.find(f=>f.id===sel);
-const esc=t=>String(t).replace(/[<>&"]/g,'');
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ov=(a,b)=>a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.h&&b.y<a.y+a.h;
 const sn=v=>snap?Math.round(v/50)*50:Math.round(v);
 function pt(e){const p=S.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(S.getScreenCTM().inverse())}
@@ -114,20 +147,18 @@ function draw(f){
 function mark(){F.forEach(f=>{const g=G.get(f.id);if(g)g.setAttribute('class','f'+(f.id===sel?' s':'')+(F.some(o=>o!==f&&ov(f,o))?' bad':''))})}
 function drag(e,id){
  e.stopPropagation();e.preventDefault();
- const f=F.find(f=>f.id===id),g=G.get(id);
- if(sel!==id||addOpen||lnOpen||bsel!=null){sel=id;addOpen=false;lnOpen=false;bclear();mark();dock()}
- const p=pt(e),ox=p.x-f.x,oy=p.y-f.y;
+ const f=F.find(f=>f.id===id),g=G.get(id);if(!f)return;
+ if(sel!==id||addOpen||lnOpen||cfgOpen||bsel!=null)select(id);
+ const p=pt(e),ox=p.x-f.x,oy=p.y-f.y,x0=f.x,y0=f.y;busy=id;
  try{g.setPointerCapture(e.pointerId)}catch(_){}
  const mv=ev=>{const q=pt(ev);f.x=sn(q.x-ox);f.y=sn(q.y-oy);g.setAttribute('transform',`translate(${f.x} ${f.y})`);pos()};
- const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);save();mark()};
+ const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);busy=null;if(f.x!==x0||f.y!==y0)upd(f);mark()};
  g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
 }
 function pos(){const f=cur(),i=$('pos');if(f&&i)i.textContent=`위치 x ${f.x} · y ${f.y} (도면 왼쪽 위 기준, mm)`}
-function select(id){sel=id;addOpen=false;lnOpen=false;bclear();mark();dock()}
-// ---- 작업대 항목: 사진·링크 ----
-let B=[],bsel=null,buid=1;const BG=new Map(),IM=new Map();
-try{const d=JSON.parse(localStorage.getItem('board')||'[]');if(Array.isArray(d)){B=d.filter(b=>b&&b.w>0&&b.h>0&&(b.k==='img'||b.k==='link'));buid=B.reduce((m,b)=>Math.max(m,b.id),0)+1}}catch(e){}
-const bsave=()=>{try{localStorage.setItem('board',JSON.stringify(B));return true}catch(e){return false}};
+function select(id){sel=id;addOpen=lnOpen=cfgOpen=false;undo=null;bclear();mark();dock()}
+
+// ---- 작업대 항목: 사진·링크 (카드 또는 도면 위 핀) ----
 const bcur=()=>B.find(b=>b.id===bsel);
 // 사진은 용량이 커서 IndexedDB에 따로 보관
 const idb=(m,k,val)=>new Promise((res,rej)=>{try{const q=indexedDB.open('song-board',1);q.onupgradeneeded=()=>q.result.createObjectStore('img');q.onerror=()=>rej(q.error);q.onsuccess=()=>{const t=q.result.transaction('img',m==='get'?'readonly':'readwrite'),st=t.objectStore('img'),r=m==='get'?st.get(k):m==='put'?st.put(val,k):st.delete(k);t.oncomplete=()=>res(r.result);t.onerror=()=>rej(t.error)}}catch(e){rej(e)}});
@@ -137,11 +168,23 @@ const host=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){retu
 const tw=t=>[...t].reduce((s,c)=>s+(c.charCodeAt(0)>255?1:.58),0);
 function clip(t,w,fs){t=String(t||'');if(tw(t)*fs<=w)return t;const a=[...t];while(a.length&&tw(a.join('')+'…')*fs>w)a.pop();return a.join('')+'…'}
 const chipT=b=>(b.k==='img'?'📷 ':'🔗 ')+(b.n||(b.k==='img'?'사진':host(b.u)||'링크'));
-const hs=()=>{const r=box();return r.width?v.w/r.width*30:300};
+const label=o=>o.k==='f'?o.n:chipT(o);
+const px=()=>{const r=box();return r.width?v.w/r.width:10};
+const hs=()=>px()*30;
 function bdraw(b){
+ const par=b.pin?PL:BL;
  let g=BG.get(b.id);
- if(!g){g=el('g',{},BL);BG.set(b.id,g);g.addEventListener('pointerdown',e=>bdrag(e,b.id))}
- g.innerHTML='';g.setAttribute('transform',`translate(${b.x} ${b.y})`);g.setAttribute('class','b'+(b.id===bsel?' s':''));
+ if(!g){g=el('g',{},par);BG.set(b.id,g);g.addEventListener('pointerdown',e=>bdrag(e,b.id))}else if(g.parentNode!==par)par.appendChild(g);
+ g.innerHTML='';g.setAttribute('transform',`translate(${b.x} ${b.y})`);g.setAttribute('class','b'+(b.pin?' pin':'')+(b.id===bsel?' s':''));
+ if(b.pin){
+  // 핀은 확대해도 화면에서 같은 크기 (ap()에서 배율 갱신)
+  const q=el('g',{class:'pb',transform:`scale(${px()})`},g);
+  el('circle',{r:17,class:'pc'},q);
+  el('text',{y:6,'font-size':16,'text-anchor':'middle'},q,b.k==='img'?'📷':'🔗');
+  const lb=b.n||(b.k==='img'?'':host(b.u));
+  if(lb)el('text',{y:36,'font-size':12.5,'font-weight':700,'text-anchor':'middle',class:'pl'},q,clip(lb,150,12.5));
+  return;
+ }
  if(b.k==='img'){
   const fs=Math.max(110,Math.min(300,b.w/14));
   el('rect',{width:b.w,height:b.h,class:'bf'},g);
@@ -160,22 +203,26 @@ function bdraw(b){
  }
  if(b.id===bsel){const r=hs();el('rect',{x:b.w-r/2,y:b.h-r/2,width:r,height:r,rx:r*.25,class:'bh'},g).addEventListener('pointerdown',e=>bresize(e,b.id))}
 }
-function bhd(){const b=bcur(),h=b&&BG.get(b.id).querySelector('.bh');if(!h)return;const r=hs();h.setAttribute('x',b.w-r/2);h.setAttribute('y',b.h-r/2);h.setAttribute('width',r);h.setAttribute('height',r);h.setAttribute('rx',r*.25)}
+function bhd(){
+ const k=px();PL.querySelectorAll('.pb').forEach(q=>q.setAttribute('transform',`scale(${k})`));
+ const b=bcur(),h=b&&BG.get(b.id)&&BG.get(b.id).querySelector('.bh');if(!h)return;const r=hs();h.setAttribute('x',b.w-r/2);h.setAttribute('y',b.h-r/2);h.setAttribute('width',r);h.setAttribute('height',r);h.setAttribute('rx',r*.25)
+}
 function bclear(){if(bsel==null)return;const o=bcur();bsel=null;if(o)bdraw(o)}
+function border(){B.sort(zs).forEach(b=>{const g=BG.get(b.id);if(g)g.parentNode.appendChild(g)})}
 function bselect(id,go){
- const o=bcur();bsel=id;sel=null;addOpen=false;lnOpen=false;mark();if(o&&o.id!==id)bdraw(o);
- const b=bcur();if(b){BL.appendChild(BG.get(id));B=B.filter(x=>x!==b).concat(b);bsave();bdraw(b);if(go)reveal(b)}
+ const o=bcur();bsel=id;sel=null;addOpen=lnOpen=cfgOpen=false;undo=null;mark();if(o&&o.id!==id)bdraw(o);
+ const b=bcur();if(b){if(B[B.length-1]!==b){b.z=Date.now();upd(b)}border();bdraw(b);if(go)reveal(b)}
  dock();
 }
 function bmove(e,b,mv){
- const g=BG.get(b.id);
+ const g=BG.get(b.id),k0=[b.x,b.y,b.w,b.h]+'';busy=b.id;
  try{g.setPointerCapture(e.pointerId)}catch(_){}
- const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);bsave()};
+ const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);busy=null;if([b.x,b.y,b.w,b.h]+''!==k0)upd(b)};
  g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
 }
 function bdrag(e,id){
  e.stopPropagation();e.preventDefault();
- if(bsel!==id||sel||addOpen||lnOpen)bselect(id);
+ if(bsel!==id||sel||addOpen||lnOpen||cfgOpen)bselect(id);
  const b=bcur();if(!b)return;const g=BG.get(id),p=pt(e),ox=p.x-b.x,oy=p.y-b.y;
  bmove(e,b,ev=>{const q=pt(ev);b.x=Math.round(q.x-ox);b.y=Math.round(q.y-oy);g.setAttribute('transform',`translate(${b.x} ${b.y})`)});
 }
@@ -184,40 +231,201 @@ function bresize(e,id){
  const b=B.find(b=>b.id===id);if(!b)return;const r=b.h/b.w;
  bmove(e,b,ev=>{const q=pt(ev);b.w=Math.max(400,Math.round(q.x-b.x));b.h=b.k==='img'?Math.round(b.w*r):Math.max(500,Math.round(q.y-b.y));bdraw(b)});
 }
+const inR=(R,x,y)=>x>R.x&&x<R.x+R.w&&y>R.y&&y<R.y+R.h;
+// 작업대를 보고 있으면 화면 가운데에 카드, 도면을 보고 있으면 그 자리에 핀, 그 밖엔 작업대 빈 칸에 카드
 function spot(w,h,i){
  const cx=v.x+v.w/2,cy=v.y+v.h/2;
- if(cx>WB.x&&cx<WB.x+WB.w&&cy>WB.y&&cy<WB.y+WB.h)return{x:Math.round(cx-w/2+i*300),y:Math.round(cy-h/2+i*300)};
+ if(inR(WB,cx,cy))return{x:Math.round(cx-w/2+i*300),y:Math.round(cy-h/2+i*300)};
+ if(inR(BB,cx,cy)){let x=cx+i*px()*44;for(let j=0;j<10&&B.some(b=>b.pin&&Math.hypot(b.x-x,b.y-cy)<px()*36);j++)x+=px()*44;return{pin:true,x:Math.round(x),y:Math.round(cy)}}
  const n=B.length+i;return{x:WB.x+400+(n%3)*4200,y:WB.y+900+(Math.floor(n/3)%3)*3400};
 }
-function reveal(b){const cx=b.x+b.w/2,cy=b.y+b.h/2;if(cx>v.x&&cx<v.x+v.w&&cy>v.y&&cy<v.y+v.h)return;if(cx>WB.x&&cx<WB.x+WB.w&&cy>WB.y&&cy<WB.y+WB.h)fit(WB);else{v.x=cx-v.w/2;v.y=cy-v.h/2;ap()}}
+function reveal(b){const cx=b.pin?b.x:b.x+b.w/2,cy=b.pin?b.y:b.y+b.h/2;if(inR(v,cx,cy))return;if(inR(WB,cx,cy))fit(WB);else{v.x=cx-v.w/2;v.y=cy-v.h/2;ap()}}
+// 동기화용으로 한 장이 Firestore 문서 한도(1MB) 안에 들어가게 줄임
 function shrink(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),im=new Image();
- im.onload=()=>{const k=Math.min(1,1600/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.naturalWidth*k));c.height=Math.max(1,Math.round(im.naturalHeight*k));const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res({s:c.toDataURL('image/jpeg',.82),w:c.width,h:c.height})};
+ im.onload=()=>{URL.revokeObjectURL(u);let k=Math.min(1,1400/Math.max(im.naturalWidth,im.naturalHeight)),s,c;
+  for(let i=0;i<6;i++){c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.naturalWidth*k));c.height=Math.max(1,Math.round(im.naturalHeight*k));const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);s=c.toDataURL('image/jpeg',.8);if(s.length<800000)break;k*=.75}
+  res({s,w:c.width,h:c.height})};
  im.onerror=()=>{URL.revokeObjectURL(u);rej()};im.src=u})}
 async function addPhoto(file,i=0){
  if(!file||!/^image\//.test(file.type))return;
  let r;try{r=await shrink(file)}catch(e){alert('사진을 열 수 없어요.');return}
  try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
- const w=3200,h=Math.round(w*r.h/r.w),p=spot(w,h,i),b={id:buid++,k:'img',x:p.x,y:p.y,w,h,n:'',u:'',m:''};
+ const w=3200,h=Math.round(w*r.h/r.w),p=spot(w,h,i),b={id:nid(),k:'img',x:p.x,y:p.y,w,h,n:'',u:'',m:'',z:Date.now()};
+ if(p.pin)b.pin=true;
  IM.set(b.id,r.s);
  try{await idb('put',b.id,r.s)}catch(e){b.src=r.s}
  B.push(b);bdraw(b);
- if(!bsave()){delete b.src;bsave();alert('저장 공간이 부족해서 이 사진은 새로고침하면 사라질 수 있어요.')}
+ if(!upd(b)){delete b.src;persist();alert('기기 저장 공간이 부족해요. 백업 파일을 저장해 두세요.')}
  bselect(b.id,true);
 }
 function addLink(u,n,m){
  const k=String(u||'').match(URL_RE);u=nurl(k?k[0]:u);
  if(!u){alert('링크 주소를 확인해 주세요.');return}
- const w=3600,h=1500,p=spot(w,h,0),b={id:buid++,k:'link',x:p.x,y:p.y,w,h,n:String(n||'').slice(0,40)||host(u),u,m:String(m||'').slice(0,60)};
- B.push(b);bdraw(b);bsave();bselect(b.id,true);
+ const w=3600,h=1500,p=spot(w,h,0),b={id:nid(),k:'link',x:p.x,y:p.y,w,h,n:String(n||'').slice(0,40)||host(u),u,m:String(m||'').slice(0,60),z:Date.now()};
+ if(p.pin)b.pin=true;
+ B.push(b);bdraw(b);upd(b);bselect(b.id,true);
 }
-function loadImgs(){B.forEach(b=>{if(b.k!=='img')return;if(b.src){IM.set(b.id,b.src);bdraw(b)}else idb('get',b.id).then(s=>{if(s){IM.set(b.id,s);bdraw(b)}}).catch(()=>{})})}
+// 사진 불러오기: 메모리 → 기기(IndexedDB) → 동기화 서버 순
+function needImg(o,n=0){
+ if(o.k!=='img'||IM.has(o.id)||LO.has(o.id))return;LO.add(o.id);
+ const got=s=>{if(!s)return false;IM.set(o.id,s);LO.delete(o.id);if(BG.has(o.id))bdraw(o);if(bsel===o.id)panel();return true};
+ if(o.src&&got(o.src))return;
+ idb('get',o.id).then(s=>s||(o.ok!=null?idb('get',o.ok).then(s=>{if(s)idb('put',o.id,s).then(()=>{idb('del',o.ok);delete o.ok;persist()}).catch(()=>{});return s}):null)).catch(()=>null).then(s=>{
+  if(got(s))return;
+  if(!db){LO.delete(o.id);return}
+  FS.getDoc(FS.doc(db,'rooms',room,'imgs',o.id)).then(d=>d.exists()?d.data().s:null).catch(()=>null).then(s=>{
+   if(got(s)){idb('put',o.id,s).catch(()=>{});return}
+   LO.delete(o.id);if(n<8&&find(o.id))setTimeout(()=>needImg(o,n+1),2000*(n+1)); // 올리는 중일 수 있어 잠시 뒤 다시
+  });
+ });
+}
 const fi=$('fi');fi.onchange=()=>{[...fi.files].forEach((f,i)=>addPhoto(f,i));fi.value=''};
+
+// ---- 지우기 = 휴지통으로 (언제든 복구) ----
+function unG(o){const m=o.k==='f'?G:BG,g=m.get(o.id);if(g){g.remove();m.delete(o.id)}}
+// 항목을 상태(d·k)에 맞는 목록으로 옮기고 다시 그림
+function place(o){
+ const to=o.d?T:o.k==='f'?F:B;
+ if(!to.includes(o)){[F,B,T].forEach(a=>{const i=a.indexOf(o);if(i>=0)a.splice(i,1)});to.push(o)}
+ if(o.d){unG(o);if(sel===o.id)sel=null;if(bsel===o.id)bsel=null}
+ else if(o.k==='f')draw(o);else{bdraw(o);needImg(o)}
+}
+function del(o){o.d=Date.now();upd(o);place(o);undo=o;sel=bsel=null;mark();dock()}
+function restore(o){delete o.d;upd(o);place(o);border();mark();o.k==='f'?select(o.id):bselect(o.id,true)}
+
+// ---- 백업 파일 (사진 포함) ----
+async function backup(){
+ const items=all().map(o=>({id:o.id,...pick(o)})),imgs={};
+ for(const o of items)if(o.k==='img'){let s=IM.get(o.id);if(!s)try{s=await idb('get',o.id)}catch(e){}if(s)imgs[o.id]=s}
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({v:1,items,imgs})],{type:'application/json'}));
+ a.download=`평면도-백업-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+}
+// 불러오면 지금 배치에 합침 (같은 항목은 더 최근 것만)
+async function restoreFile(file){
+ let d;try{d=JSON.parse(await file.text())}catch(e){}
+ if(!d||!Array.isArray(d.items))return alert('백업 파일을 읽을 수 없어요.');
+ let n=0;
+ for(const r of d.items){
+  if(!r||typeof r.id!=='string'||!(r.w>0&&r.h>0)||!['f','img','link'].includes(r.k))continue;
+  const o=find(r.id);if(o&&(o.t||0)>=(r.t||0))continue;
+  const s=d.imgs&&d.imgs[r.id];if(typeof s==='string'&&s.startsWith('data:image/')){IM.set(r.id,s);idb('put',r.id,s).catch(()=>{})}
+  const x=o||{id:r.id};FIELDS.forEach(k=>{if(r[k]!=null)x[k]=r[k];else delete x[k]});x.t=Date.now();place(x);n++;
+ }
+ border();mark();save();dock();alert(n?`${n}개 항목을 불러왔어요.`:'새로 불러올 항목이 없어요. (이미 최신)');
+}
+const bkf=$('bkf');bkf.onchange=()=>{const f=bkf.files[0];bkf.value='';if(f)restoreFile(f)};
+
+// ---- 실시간 동기화 (Firebase Firestore) ----
+// Firebase 콘솔 > 프로젝트 설정 > 내 앱(웹)의 firebaseConfig를 그대로 붙여넣으면 켜짐
+const FB_CONFIG=null;
+const FBV='12.19.0';
+let db=null,FS=null,dbp=null,unsub=null,ready=false,waited=false,last=null,wt=0,room=null,sent=new Map(),sstate='local',smsg='';
+try{room=localStorage.getItem('room')}catch(e){}
+{const m=location.hash.match(/[#&]s=([A-Za-z0-9_-]{16,64})/);if(m){room=m[1];try{localStorage.setItem('room',room)}catch(e){}history.replaceState(null,'',location.pathname+location.search)}}
+const STX={local:'이 기기(브라우저)에만 자동 저장 중',conn:'동기화 연결 중…',ok:'실시간 동기화됨 · 자동 저장',pend:'저장 중…',off:'오프라인 · 기기에 저장해 두고 연결되면 자동으로 올려요',err:'동기화 오류',full:'기기 저장 공간이 부족해요 · 백업 파일을 저장해 두세요'};
+function status(s,m){sstate=s;smsg=m||'';const b=$('sy'),t=STX[s]+(smsg?' · '+smsg:'');if(b){b.dataset.s=s;b.title=t}const e=$('sst');if(e)e.textContent=t}
+const persistSent=()=>{try{localStorage.setItem('sent:'+room,JSON.stringify(Object.fromEntries(sent)))}catch(e){}};
+const getDb=()=>dbp||(dbp=(async()=>{
+ const base=`https://www.gstatic.com/firebasejs/${FBV}/`,[A,Fs]=await Promise.all([import(base+'firebase-app.js'),import(base+'firebase-firestore.js')]);
+ const app=A.initializeApp(FB_CONFIG);let d;
+ try{d=Fs.initializeFirestore(app,{localCache:Fs.persistentLocalCache({tabManager:Fs.persistentMultipleTabManager()})})}catch(e){d=Fs.getFirestore(app)}
+ let emu=null;try{emu=localStorage.getItem('fb-emu')}catch(e){}
+ if(emu){const[h,p]=emu.split(':');Fs.connectFirestoreEmulator(d,h,+p)}
+ FS=Fs;db=d;
+})().catch(e=>{dbp=null;throw e}));
+async function connect(){
+ if(unsub){unsub();unsub=null}
+ ready=waited=false;last=null;clearTimeout(wt);
+ if(!FB_CONFIG||!room)return status('local');
+ status('conn');
+ try{await getDb()}catch(e){console.error(e);return status('err','Firebase를 불러오지 못했어요')}
+ try{sent=new Map(Object.entries(JSON.parse(localStorage.getItem('sent:'+room)||'{}')))}catch(e){sent=new Map()}
+ const r=room;
+ unsub=FS.onSnapshot(FS.collection(db,'rooms',r,'items'),{includeMetadataChanges:true},s=>{if(r===room)onSnap(s)},e=>status('err',e.code==='permission-denied'?'Firestore 규칙을 확인해 주세요':e.code||e.message));
+ // 오프라인이면 기기에 캐시된 내용으로 시작
+ wt=setTimeout(()=>{if(!ready&&last){waited=true;onSnap(last)}},4000);
+}
+// 서버에서 온 항목 하나 반영. 이 기기에서 아직 안 올린 수정이 있으면 이 기기 것이 이김
+function remote(id,r){
+ const o=find(id);
+ if(!r){if(o&&!o.d){o.d=Date.now();o.t=o.d;place(o);return true}return false} // 서버에서 문서가 지워져도 휴지통에 남김
+ const rt=r.t||0,s=sent.get(id);
+ if(o){const lt=o.t||0;if(busy===id||(s!=null?lt>s:lt>rt))return false;if(lt===rt){sent.set(id,rt);return false}}
+ if(!['f','img','link'].includes(r.k)||!(r.w>0&&r.h>0))return false;
+ sent.set(id,rt);
+ const n=o||{id};FIELDS.forEach(k=>{if(r[k]!=null)n[k]=r[k];else delete n[k]});
+ if(n.k==='f')n.n=String(n.n||'가구');
+ place(n);return true;
+}
+function onSnap(snap){
+ last=snap;const md=snap.metadata;
+ if(!ready&&md.fromCache&&!waited)return;
+ const first=!ready,ch=new Set();ready=true;clearTimeout(wt);
+ if(first)snap.docs.forEach(d=>{if(remote(d.id,d.data()))ch.add(d.id)});
+ else snap.docChanges().forEach(c=>{if(remote(c.doc.id,c.type==='removed'?null:c.doc.data()))ch.add(c.doc.id)});
+ if(ch.size){border();mark();persist();list();if(ch.has(sel)||ch.has(bsel)||(sel&&!cur())||(bsel!=null&&!bcur())||cfgOpen)panel()}
+ persistSent();
+ if(first){B.forEach(o=>needImg(o));flush()} // 이 기기에만 있던 항목은 합쳐서 올림
+ status(md.hasPendingWrites?'pend':md.fromCache?'off':'ok');
+}
+async function upImg(o){
+ let s=IM.get(o.id)||o.src;
+ if(!s)try{s=await idb('get',o.id)||(o.ok!=null?await idb('get',o.ok):null)}catch(e){}
+ if(s&&db)FS.setDoc(FS.doc(db,'rooms',room,'imgs',o.id),{s}).catch(e=>status('err','사진 올리기 실패'));
+}
+function flush(){
+ clearTimeout(ft);
+ if(!db||!ready||!room)return;
+ const wb=FS.writeBatch(db),ids=[];
+ for(const o of all()){
+  const s=sent.get(o.id);if(s!=null&&s>=(o.t||0))continue;
+  if(o.k==='img'&&s==null)upImg(o);
+  wb.set(FS.doc(db,'rooms',room,'items',o.id),pick(o));sent.set(o.id,o.t||0);ids.push(o.id);
+  if(ids.length>=400)break;
+ }
+ if(!ids.length)return;
+ persistSent();
+ wb.commit().catch(e=>{ids.forEach(id=>sent.delete(id));persistSent();status('err',e.code==='permission-denied'?'Firestore 규칙을 확인해 주세요':e.code||e.message)});
+ if(ids.length>=400)setTimeout(flush,50);
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flush()});
+function setRoom(c){room=c;try{c?localStorage.setItem('room',c):localStorage.removeItem('room')}catch(e){}connect();dock()}
+const code=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';return[...crypto.getRandomValues(new Uint8Array(20))].map(x=>a[x%a.length]).join('')};
+function share(){
+ const u=location.origin+location.pathname+'#s='+room;
+ const ask=()=>prompt('이 링크를 다른 기기에서 열면 자동으로 연결돼요.',u);
+ navigator.clipboard?navigator.clipboard.writeText(u).then(()=>alert('공유 링크를 복사했어요. 다른 기기에서 열면 자동으로 연결돼요.'),ask):ask();
+}
+
 // ---- 하단 패널 ----
 const PRE=[['식탁',2000,800],['퀸 침대',1500,2000],['3인 소파',2100,900],['옷장',1800,600],['책상',1200,600],['냉장고',900,800],['세탁기',600,650]];
-function dock(){
- $('ls').innerHTML='<button class="chip add" data-a="add">＋ 가구 추가</button><button class="chip add" data-a="photo">＋ 사진</button><button class="chip add" data-a="link">＋ 링크</button>'+F.map(f=>`<button class="chip${f.id===sel?' on':''}" data-id="${f.id}">${esc(f.n)}</button>`).join('')+B.map(b=>`<button class="chip${b.id===bsel?' on':''}" data-b="${b.id}">${esc(chipT(b))}</button>`).join('');
+function dock(){list();panel()}
+function list(){
+ $('ls').innerHTML='<button class="chip add" data-a="add">＋ 가구 추가</button><button class="chip add" data-a="photo">＋ 사진</button><button class="chip add" data-a="link">＋ 링크</button>'+F.map(f=>`<button class="chip${f.id===sel?' on':''}" data-id="${esc(f.id)}">${esc(f.n)}</button>`).join('')+B.map(b=>`<button class="chip${b.id===bsel?' on':''}" data-b="${esc(b.id)}">${esc(chipT(b))}</button>`).join('');
+ $('sy').classList.toggle('on',cfgOpen);
+}
+function panel(){
  const pn=$('pn'),f=cur(),bc=bcur();
- if(addOpen){
+ if(cfgOpen){
+  const tr=[...T].sort((a,b)=>(b.d||0)-(a.d||0));
+  pn.innerHTML=`<div class="ttl">저장 · 동기화</div><div class="sm" id="sst"></div>
+  ${FB_CONFIG?`<div class="row"><label class="n">동기화 코드 · 같은 코드를 넣은 기기끼리 실시간으로 맞춰져요<input type="text" id="rc" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="영문·숫자 16자 이상"></label></div>
+  <div class="row"><button class="p" id="rcon">연결</button><button id="rnew">새 코드 만들기</button><button id="rsh"${room?'':' hidden'}>공유 링크 복사</button><button id="rdis"${room?'':' hidden'}>연결 끊기</button></div>`:'<div class="sm">실시간 동기화는 Firebase 설정을 넣으면 켜져요.</div>'}
+  <div class="ttl gap">백업</div>
+  <div class="row"><button id="bkx">백업 파일 저장</button><button id="bki">백업 불러오기</button></div>
+  <div class="sm">사진까지 파일 하나로 저장돼요. 불러오면 지금 배치에 합쳐져요 (지워지지 않음).</div>
+  <div class="ttl gap">휴지통 ${tr.length}</div>
+  ${tr.length?tr.slice(0,50).map(o=>`<div class="trow"><span>${esc(label(o))}</span><button data-r="${esc(o.id)}">복구</button></div>`).join(''):'<div class="sm">지운 항목은 여기 보관되고 언제든 복구할 수 있어요.</div>'}`;
+  status(sstate,smsg);
+  if(FB_CONFIG){
+   $('rc').value=room||'';
+   $('rcon').onclick=()=>{const c=$('rc').value.trim();if(!/^[A-Za-z0-9_-]{16,64}$/.test(c))return alert('동기화 코드는 영문·숫자 16자 이상이어야 해요. "새 코드 만들기"를 눌러도 돼요.');setRoom(c)};
+   $('rnew').onclick=()=>{$('rc').value=code()};
+   $('rsh').onclick=share;
+   $('rdis').onclick=()=>{if(confirm('이 기기의 동기화를 끊을까요? 지금 배치는 이 기기에 그대로 남아요.'))setRoom(null)};
+  }
+  $('bkx').onclick=backup;$('bki').onclick=()=>bkf.click();
+ }else if(addOpen){
   pn.innerHTML=`<div class="ttl">새 가구</div><div class="row">${PRE.map(([n,w,d],i)=>`<button class="chip" data-pre="${i}">${n} ${w}×${d}</button>`).join('')}</div>
   <div class="row"><label class="n">이름<input type="text" id="an" value="${esc(addv.n)}"></label><label>가로 mm<input type="number" id="aw" value="${addv.w}" inputmode="numeric"></label><label>세로 mm<input type="number" id="ah" value="${addv.h}" inputmode="numeric"></label></div>
   <div class="row"><button class="p" id="ok" style="flex:1">도면에 추가</button><button id="cx">닫기</button></div>`;
@@ -227,27 +435,32 @@ function dock(){
   pn.innerHTML=`<div class="ttl">상품 링크 추가</div>
   <div class="row"><label class="n">링크 주소<input type="url" id="lu" inputmode="url" placeholder="쇼핑 앱 공유 문구 그대로 붙여넣어도 돼요"></label></div>
   <div class="row"><label class="n">이름<input type="text" id="ln" maxlength="40" placeholder="예: 원목 식탁"></label><label class="n">메모<input type="text" id="lm" maxlength="60" placeholder="가격·색상 등"></label></div>
-  <div class="row"><button class="p" id="lok" style="flex:1">작업대에 추가</button><button id="lcx">닫기</button></div>`;
+  <div class="row"><button class="p" id="lok" style="flex:1">추가</button><button id="lcx">닫기</button></div>`;
   $('lu').oninput=()=>{const t=$('lu').value,m=t.match(URL_RE);if(m&&m[0]!==t.trim()){if(!$('ln').value)$('ln').value=t.replace(m[0],' ').replace(/\s+/g,' ').trim().slice(0,40);$('lu').value=m[0]}};
   $('lok').onclick=()=>addLink($('lu').value,$('ln').value.trim(),$('lm').value.trim());$('lcx').onclick=()=>{lnOpen=false;dock()};
   $('lu').focus();
  }else if(bc){
   const im=bc.k==='img';
-  pn.innerHTML=`<div class="ttl"><b>${im?'사진':'링크'}</b> 수정</div>
+  pn.innerHTML=`<div class="ttl"><b>${im?'사진':'링크'}</b> ${bc.pin?'핀':'카드'} 수정</div>
+  ${im&&bc.pin?'<img id="bth" class="th" alt="첨부한 사진">':''}
   <div class="row"><label class="n">이름<input type="text" id="bn" maxlength="40" placeholder="예: 원목 식탁"></label><label class="n">메모<input type="text" id="bm" maxlength="60" placeholder="가격·색상 등"></label></div>
   <div class="row"><label class="n">상품 링크<input type="url" id="bu" inputmode="url" placeholder="https://…"></label></div>
-  <div class="row"><button id="bsm">작게</button><button id="bbg">크게</button><a class="btn" id="bo" target="_blank" rel="noopener noreferrer">링크 열기 ↗</a><button id="bd" class="danger">삭제</button></div>
-  <div class="sm" id="bi">오른쪽 아래 파란 네모를 끌면 크기가 바뀌어요.${im?' 사진에 상품 링크를 붙여둘 수 있어요.':''}</div>`;
+  <div class="row">${bc.pin?'':'<button id="bsm">작게</button><button id="bbg">크게</button>'}<button id="bpn">${bc.pin?'카드로 펼치기':'핀으로 접기'}</button><a class="btn" id="bo" target="_blank" rel="noopener noreferrer">링크 열기 ↗</a><button id="bd" class="danger">삭제</button></div>
+  <div class="sm" id="bi">${bc.pin?'핀을 끌어서 도면 위 원하는 자리에 꽂으세요.':'오른쪽 아래 파란 네모를 끌면 크기가 바뀌어요.'}${im&&!bc.pin?' 사진에 상품 링크를 붙여둘 수 있어요.':''}</div>`;
   $('bn').value=bc.n||'';$('bm').value=bc.m||'';$('bu').value=bc.u||'';
+  const th=$('bth');if(th){const s=IM.get(bc.id);if(s)th.src=s;else th.hidden=true;th.onclick=()=>{$('ovi').src=th.src;$('ov').hidden=false}}
   const lk=()=>{const a=$('bo');a.hidden=!bc.u;if(bc.u)a.href=bc.u},chip=()=>{const c=$('ls').querySelector('.chip.on');if(c)c.textContent=chipT(bc)};lk();
-  $('bn').oninput=e=>{bc.n=e.target.value.slice(0,40);bdraw(bc);bsave();chip()};
-  $('bm').oninput=e=>{bc.m=e.target.value.slice(0,60);bdraw(bc);bsave()};
+  $('bn').oninput=e=>{bc.n=e.target.value.slice(0,40);bdraw(bc);upd(bc);chip()};
+  $('bm').oninput=e=>{bc.m=e.target.value.slice(0,60);bdraw(bc);upd(bc)};
   $('bu').onchange=e=>{const raw=e.target.value,m=raw.match(URL_RE),u=nurl(m?m[0]:raw);if(raw.trim()&&!u){$('bi').textContent='링크 주소를 확인해 주세요 (https://로 시작).';return}
    if(m&&!bc.n){bc.n=raw.replace(m[0],' ').replace(/\s+/g,' ').trim().slice(0,40);$('bn').value=bc.n}
-   bc.u=u;e.target.value=u;bdraw(bc);bsave();lk();chip()};
-  const sc=k=>{k=Math.max(k,400/bc.w);const cx=bc.x+bc.w/2,cy=bc.y+bc.h/2;bc.w=Math.round(bc.w*k);bc.h=Math.round(bc.h*k);bc.x=Math.round(cx-bc.w/2);bc.y=Math.round(cy-bc.h/2);bdraw(bc);bsave()};
-  $('bsm').onclick=()=>sc(.8);$('bbg').onclick=()=>sc(1.25);
-  $('bd').onclick=()=>{B=B.filter(o=>o!==bc);BG.get(bc.id).remove();BG.delete(bc.id);IM.delete(bc.id);if(bc.k==='img')idb('del',bc.id).catch(()=>{});bsel=null;bsave();dock()};
+   bc.u=u;e.target.value=u;bdraw(bc);upd(bc);lk();chip()};
+  if(!bc.pin){
+   const sc=k=>{k=Math.max(k,400/bc.w);const cx=bc.x+bc.w/2,cy=bc.y+bc.h/2;bc.w=Math.round(bc.w*k);bc.h=Math.round(bc.h*k);bc.x=Math.round(cx-bc.w/2);bc.y=Math.round(cy-bc.h/2);bdraw(bc);upd(bc)};
+   $('bsm').onclick=()=>sc(.8);$('bbg').onclick=()=>sc(1.25);
+  }
+  $('bpn').onclick=()=>{if(bc.pin){bc.x=Math.round(bc.x-bc.w/2);bc.y=Math.round(bc.y-bc.h/2);delete bc.pin}else{bc.x=Math.round(bc.x+bc.w/2);bc.y=Math.round(bc.y+bc.h/2);bc.pin=true}bdraw(bc);upd(bc);border();panel()};
+  $('bd').onclick=()=>del(bc);
  }else if(f){
   pn.innerHTML=`<div class="ttl"><b id="tt">${esc(f.n)}</b> 수정</div>
   <div class="row"><label class="n">이름<input type="text" id="en" value="${esc(f.n)}"></label><label>가로 mm<input type="number" id="ew" value="${f.w}" inputmode="numeric"></label><label>세로 mm<input type="number" id="eh" value="${f.h}" inputmode="numeric"></label></div>
@@ -255,23 +468,32 @@ function dock(){
   <span class="pad"><button data-n="-50,0" aria-label="왼쪽">←</button><button data-n="0,-50" aria-label="위">↑</button><button data-n="0,50" aria-label="아래">↓</button><button data-n="50,0" aria-label="오른쪽">→</button></span></div>
   <div class="sm" id="pos"></div>`;
   pos();
-  $('en').oninput=e=>{f.n=e.target.value.slice(0,20)||'가구';draw(f);save();$('tt').textContent=f.n;$('ls').querySelector('.chip.on').textContent=f.n};
-  $('ew').oninput=e=>{const v=+e.target.value;if(v>=50){f.w=v;draw(f);save()}};
-  $('eh').oninput=e=>{const v=+e.target.value;if(v>=50){f.h=v;draw(f);save()}};
-  $('rt').onclick=()=>{const cx=f.x+f.w/2,cy=f.y+f.h/2;[f.w,f.h]=[f.h,f.w];f.x=Math.round(cx-f.w/2);f.y=Math.round(cy-f.h/2);draw(f);save();dock()};
-  $('cp').onclick=()=>{const c={...f,id:uid++,x:f.x+200,y:f.y+200};F.push(c);draw(c);save();select(c.id)};
-  $('dl').onclick=()=>{F=F.filter(o=>o!==f);G.get(f.id).remove();G.delete(f.id);sel=null;save();mark();dock()};
-  pn.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{const[dx,dy]=b.dataset.n.split(',').map(Number);f.x+=dx;f.y+=dy;draw(f);save();pos()});
- }else pn.innerHTML=(F.length?'<div class="sm">가구를 탭하면 크기·이름을 수정할 수 있어요.</div>':'<div class="sm">＋ 가구 추가를 눌러 이름과 가로·세로(mm)를 입력하세요.</div>')+'<div class="sm">＋ 사진·＋ 링크로 살 가구 후보를 도면 오른쪽 작업대에 모아둘 수 있어요.</div>';
+  $('en').oninput=e=>{f.n=e.target.value.slice(0,20)||'가구';draw(f);upd(f);$('tt').textContent=f.n;$('ls').querySelector('.chip.on').textContent=f.n};
+  $('ew').oninput=e=>{const v=+e.target.value;if(v>=50){f.w=v;draw(f);upd(f)}};
+  $('eh').oninput=e=>{const v=+e.target.value;if(v>=50){f.h=v;draw(f);upd(f)}};
+  $('rt').onclick=()=>{const cx=f.x+f.w/2,cy=f.y+f.h/2;[f.w,f.h]=[f.h,f.w];f.x=Math.round(cx-f.w/2);f.y=Math.round(cy-f.h/2);draw(f);upd(f);dock()};
+  $('cp').onclick=()=>{const c={...f,id:nid(),x:f.x+200,y:f.y+200};F.push(c);draw(c);upd(c);select(c.id)};
+  $('dl').onclick=()=>del(f);
+  pn.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{const[dx,dy]=b.dataset.n.split(',').map(Number);f.x+=dx;f.y+=dy;draw(f);upd(f);pos()});
+ }else{
+  pn.innerHTML=(undo&&undo.d?`<div class="row"><span class="sm" style="flex:1;margin:0">‘${esc(label(undo))}’ 삭제함 · 휴지통에 보관돼요</span><button id="ud">되돌리기</button></div>`:'')
+   +(F.length?'<div class="sm">가구를 탭하면 크기·이름을 수정할 수 있어요.</div>':'<div class="sm">＋ 가구 추가를 눌러 이름과 가로·세로(mm)를 입력하세요.</div>')
+   +'<div class="sm">＋ 사진·＋ 링크: 도면을 보고 있으면 그 자리에 핀으로, 작업대를 보고 있으면 카드로 추가돼요.</div>';
+  const u=$('ud');if(u)u.onclick=()=>restore(undo);
+ }
 }
 let addv={n:'식탁',w:2000,h:800};
 function add(n,w,h){
- const f={id:uid++,n:(n||'가구').slice(0,20),w:Math.max(50,+w||0),h:Math.max(50,+h||0),x:7400-(+w||500)/2|0,y:1500-(+h||500)/2|0};
- f.x=sn(f.x);f.y=sn(f.y);F.push(f);draw(f);save();select(f.id);
+ const f={id:nid(),k:'f',n:(n||'가구').slice(0,20),w:Math.max(50,+w||0),h:Math.max(50,+h||0),x:7400-(+w||500)/2|0,y:1500-(+h||500)/2|0};
+ f.x=sn(f.x);f.y=sn(f.y);F.push(f);draw(f);upd(f);select(f.id);
 }
-$('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;if(a==='photo')return fi.click();if(a){addOpen=a==='add';lnOpen=a==='link';sel=null;bclear();mark();dock()}else if(b.dataset.b)bselect(+b.dataset.b,true);else select(+b.dataset.id)};
-$('pn').onclick=e=>{const b=e.target.closest('[data-pre]');if(!b)return;const[n,w,d]=PRE[+b.dataset.pre];addv={n,w,h:d};$('an').value=n;$('aw').value=w;$('ah').value=d};
+$('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;if(a==='photo')return fi.click();if(a){addOpen=a==='add';lnOpen=a==='link';cfgOpen=false;undo=null;sel=null;bclear();mark();dock()}else if(b.dataset.b)bselect(b.dataset.b,true);else select(b.dataset.id)};
+$('pn').onclick=e=>{
+ const r=e.target.closest('[data-r]');if(r){const o=T.find(o=>o.id===r.dataset.r);if(o)restore(o);return}
+ const b=e.target.closest('[data-pre]');if(!b)return;const[n,w,d]=PRE[+b.dataset.pre];addv={n,w,h:d};$('an').value=n;$('aw').value=w;$('ah').value=d};
 $('sn').onclick=e=>{snap=!snap;e.currentTarget.classList.toggle('on',snap)};
+$('sy').onclick=()=>{cfgOpen=!cfgOpen;if(cfgOpen){addOpen=lnOpen=false;sel=null;bclear();mark()}dock()};
+$('ov').onclick=()=>{$('ov').hidden=true};
 // ---- 확대·이동 ----
 const BB={x:-739,y:-5693,w:14381,h:11032};
 let v={x:BB.x,y:BB.y,w:BB.w,h:BB.h};
@@ -299,5 +521,5 @@ document.addEventListener('paste',e=>{const t=e.target;if(t&&t.matches&&t.matche
  const s=d.getData('text')||'',m=s.match(URL_RE);if(m){e.preventDefault();addLink(m[0],s.replace(m[0],' ').replace(/\s+/g,' ').trim(),'')}});
 $('pw').addEventListener('dragover',e=>e.preventDefault());
 $('pw').addEventListener('drop',e=>{e.preventDefault();const dt=e.dataTransfer,fs=[...dt.files].filter(f=>/^image\//.test(f.type));if(fs.length)return fs.forEach((f,i)=>addPhoto(f,i));const s=dt.getData('text/uri-list')||dt.getData('text');if(URL_RE.test(s))addLink(s,'','')});
-F.forEach(draw);B.forEach(bdraw);loadImgs();dock();fit();
+F.forEach(draw);B.sort(zs).forEach(bdraw);B.forEach(o=>needImg(o));persist();status('local');dock();fit();connect();
 </script></body></html>
