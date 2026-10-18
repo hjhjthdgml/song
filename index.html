@@ -317,7 +317,14 @@ const bkf=$('bkf');bkf.onchange=()=>{const f=bkf.files[0];bkf.value='';if(f)rest
 
 // ---- 실시간 동기화 (Firebase Firestore) ----
 // Firebase 콘솔 > 프로젝트 설정 > 내 앱(웹)의 firebaseConfig를 그대로 붙여넣으면 켜짐
-const FB_CONFIG=null;
+const FB_CONFIG={
+ apiKey:'AIzaSyCDWZ3YA7K7wmQo0WnfHc-Ao5EIoTCm_zY',
+ authDomain:'song-4fe58.firebaseapp.com',
+ projectId:'song-4fe58',
+ storageBucket:'song-4fe58.firebasestorage.app',
+ messagingSenderId:'272717682230',
+ appId:'1:272717682230:web:7fdf553c9c00cb08876a97'
+};
 const FBV='12.19.0';
 let db=null,FS=null,dbp=null,unsub=null,ready=false,waited=false,last=null,wt=0,room=null,sent=new Map(),sstate='local',smsg='';
 try{room=localStorage.getItem('room')}catch(e){}
