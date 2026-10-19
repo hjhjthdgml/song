@@ -56,6 +56,12 @@ input[type=text],input[type=number],input[type=url]{font:inherit;font-size:16px;
 .bs{fill:#5b6b78}
 .bh{fill:#0a5bb5;stroke:#fff;stroke-width:12;cursor:nwse-resize}
 .pc{fill:#0a5bb5;stroke:#fff;stroke-width:3}
+.dd{cursor:grab}
+.dd .dh{stroke:transparent;fill:none}
+.dd.s .dl{stroke:var(--scn)}
+.dd.s .dm{fill:var(--scn)}
+.dk{fill:#fff;stroke:var(--scn);cursor:move}
+.mk{fill:var(--scn);stroke:#fff}
 .b.s .pc{fill:#d4691e}
 .pl{fill:#16232e;paint-order:stroke;stroke:#fff;stroke-width:3.5;stroke-linejoin:round}
 .sy{position:relative;padding:0 10px}
@@ -109,21 +115,26 @@ const BL=el('g',{});
 
 // ---- 데이터: 가구(F) · 작업대 사진·링크(B) · 휴지통(T) ----
 // 항목마다 t(마지막 수정 시각)를 두고 기기 저장과 Firebase 동기화에 함께 씀
-const FIELDS=['k','n','w','h','x','y','u','m','z','pin','d','t'];
+const FIELDS=['k','n','w','h','x','y','u','m','z','pin','d','t','x2','y2','v'];
+const KINDS=['f','img','link','dim'];
+// 실측(dim)은 두 끝점(x,y)-(x2,y2), 나머지는 크기(w,h)가 있어야 함
+const valid=o=>!!o&&(o.k==='dim'?[o.x,o.y,o.x2,o.y2].every(Number.isFinite):o.w>0&&o.h>0);
 const nid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-const ld=k=>{try{const d=JSON.parse(localStorage.getItem(k)||'[]');return Array.isArray(d)?d.filter(o=>o&&o.w>0&&o.h>0):[]}catch(e){return[]}};
-const F=ld('furn'),B=ld('board').filter(b=>b.k==='img'||b.k==='link'),T=ld('trash');
+const ld=k=>{try{const d=JSON.parse(localStorage.getItem(k)||'[]');return Array.isArray(d)?d.filter(valid):[]}catch(e){return[]}};
+const F=ld('furn'),B=ld('board').filter(b=>b.k==='img'||b.k==='link'),D=ld('dims').filter(o=>o.k==='dim'),T=ld('trash');
 F.forEach(f=>{f.k='f';f.n=String(f.n||'가구')});
 // 예전 숫자 id → 기기끼리 겹치지 않는 문자열 id (사진은 ok에 옛 키를 남겨 옮겨 옴)
-[...F,...B,...T].forEach(o=>{if(typeof o.id!=='string'){if(o.k==='img')o.ok=o.id;o.id=nid()}});
-let sel=null,bsel=null,busy=null,addOpen=false,lnOpen=false,cfgOpen=false,undo=null,snap=true;
-const G=new Map(),BG=new Map(),IM=new Map(),LO=new Set();
-const layer=el('g',{}),PL=el('g',{});
-const all=()=>[...F,...B,...T];
+[...F,...B,...D,...T].forEach(o=>{if(typeof o.id!=='string'){if(o.k==='img')o.ok=o.id;o.id=nid()}});
+[F,B,D].forEach(a=>{for(let i=a.length-1;i>=0;i--)if(a[i].d)T.push(...a.splice(i,1))});
+for(let i=T.length-1;i>=0;i--)if(!T[i].d)T[i].d=T[i].t||1;
+let sel=null,bsel=null,dsel=null,busy=null,addOpen=false,lnOpen=false,cfgOpen=false,mOpen=false,mPts=[],undo=null,snap=true;
+const G=new Map(),BG=new Map(),DG=new Map(),IM=new Map(),LO=new Set();
+const DL=el('g',{}),layer=el('g',{}),PL=el('g',{});
+const all=()=>[...F,...B,...D,...T];
 const find=id=>all().find(o=>o.id===id);
 const zs=(a,b)=>(a.z||0)-(b.z||0);
 const pick=o=>{const r={};FIELDS.forEach(k=>{if(o[k]!==undefined)r[k]=o[k]});return r};
-const persist=()=>{try{localStorage.setItem('furn',JSON.stringify(F));localStorage.setItem('board',JSON.stringify(B));localStorage.setItem('trash',JSON.stringify(T));return true}catch(e){status('full');return false}};
+const persist=()=>{try{localStorage.setItem('furn',JSON.stringify(F));localStorage.setItem('board',JSON.stringify(B));localStorage.setItem('dims',JSON.stringify(D));localStorage.setItem('trash',JSON.stringify(T));return true}catch(e){status('full');return false}};
 let ft=0;
 const save=()=>{const ok=persist();clearTimeout(ft);ft=setTimeout(flush,300);return ok};
 const upd=o=>{o.t=Date.now();return save()};
@@ -146,9 +157,10 @@ function draw(f){
 }
 function mark(){F.forEach(f=>{const g=G.get(f.id);if(g)g.setAttribute('class','f'+(f.id===sel?' s':'')+(F.some(o=>o!==f&&ov(f,o))?' bad':''))})}
 function drag(e,id){
+ if(mOpen)return; // 실측 찍는 중엔 가구 위도 점으로 찍힘
  e.stopPropagation();e.preventDefault();
  const f=F.find(f=>f.id===id),g=G.get(id);if(!f)return;
- if(sel!==id||addOpen||lnOpen||cfgOpen||bsel!=null)select(id);
+ if(sel!==id||addOpen||lnOpen||cfgOpen||bsel!=null||dsel!=null)select(id);
  const p=pt(e),ox=p.x-f.x,oy=p.y-f.y,x0=f.x,y0=f.y;busy=id;
  try{g.setPointerCapture(e.pointerId)}catch(_){}
  const mv=ev=>{const q=pt(ev);f.x=sn(q.x-ox);f.y=sn(q.y-oy);g.setAttribute('transform',`translate(${f.x} ${f.y})`);pos()};
@@ -156,7 +168,7 @@ function drag(e,id){
  g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
 }
 function pos(){const f=cur(),i=$('pos');if(f&&i)i.textContent=`위치 x ${f.x} · y ${f.y} (도면 왼쪽 위 기준, mm)`}
-function select(id){sel=id;addOpen=lnOpen=cfgOpen=false;undo=null;bclear();mark();dock()}
+function select(id){sel=id;addOpen=lnOpen=cfgOpen=false;mEnd();undo=null;bclear();dclear();mark();dock()}
 
 // ---- 작업대 항목: 사진·링크 (카드 또는 도면 위 핀) ----
 const bcur=()=>B.find(b=>b.id===bsel);
@@ -168,7 +180,8 @@ const host=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){retu
 const tw=t=>[...t].reduce((s,c)=>s+(c.charCodeAt(0)>255?1:.58),0);
 function clip(t,w,fs){t=String(t||'');if(tw(t)*fs<=w)return t;const a=[...t];while(a.length&&tw(a.join('')+'…')*fs>w)a.pop();return a.join('')+'…'}
 const chipT=b=>(b.k==='img'?'📷 ':'🔗 ')+(b.n||(b.k==='img'?'사진':host(b.u)||'링크'));
-const label=o=>o.k==='f'?o.n:chipT(o);
+const dimT=o=>'📏 '+(o.n?o.n+' ':'')+(o.v||'');
+const label=o=>o.k==='f'?o.n:o.k==='dim'?dimT(o):chipT(o);
 const px=()=>{const r=box();return r.width?v.w/r.width:10};
 const hs=()=>px()*30;
 function bdraw(b){
@@ -205,12 +218,13 @@ function bdraw(b){
 }
 function bhd(){
  const k=px();PL.querySelectorAll('.pb').forEach(q=>q.setAttribute('transform',`scale(${k})`));
+ DL.querySelectorAll('.dh').forEach(l=>l.setAttribute('stroke-width',k*26));DL.querySelectorAll('.dk').forEach(c=>{c.setAttribute('r',k*11);c.setAttribute('stroke-width',k*3)});DL.querySelectorAll('.mk').forEach(c=>c.setAttribute('r',k*7));
  const b=bcur(),h=b&&BG.get(b.id)&&BG.get(b.id).querySelector('.bh');if(!h)return;const r=hs();h.setAttribute('x',b.w-r/2);h.setAttribute('y',b.h-r/2);h.setAttribute('width',r);h.setAttribute('height',r);h.setAttribute('rx',r*.25)
 }
 function bclear(){if(bsel==null)return;const o=bcur();bsel=null;if(o)bdraw(o)}
 function border(){B.sort(zs).forEach(b=>{const g=BG.get(b.id);if(g)g.parentNode.appendChild(g)})}
 function bselect(id,go){
- const o=bcur();bsel=id;sel=null;addOpen=lnOpen=cfgOpen=false;undo=null;mark();if(o&&o.id!==id)bdraw(o);
+ const o=bcur();bsel=id;sel=null;addOpen=lnOpen=cfgOpen=false;mEnd();undo=null;dclear();mark();if(o&&o.id!==id)bdraw(o);
  const b=bcur();if(b){if(B[B.length-1]!==b){b.z=Date.now();upd(b)}border();bdraw(b);if(go)reveal(b)}
  dock();
 }
@@ -221,8 +235,9 @@ function bmove(e,b,mv){
  g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
 }
 function bdrag(e,id){
+ if(mOpen)return;
  e.stopPropagation();e.preventDefault();
- if(bsel!==id||sel||addOpen||lnOpen||cfgOpen)bselect(id);
+ if(bsel!==id||sel||addOpen||lnOpen||cfgOpen||dsel!=null)bselect(id);
  const b=bcur();if(!b)return;const g=BG.get(id),p=pt(e),ox=p.x-b.x,oy=p.y-b.y;
  bmove(e,b,ev=>{const q=pt(ev);b.x=Math.round(q.x-ox);b.y=Math.round(q.y-oy);g.setAttribute('transform',`translate(${b.x} ${b.y})`)});
 }
@@ -281,17 +296,71 @@ function needImg(o,n=0){
 }
 const fi=$('fi');fi.onchange=()=>{[...fi.files].forEach((f,i)=>addPhoto(f,i));fi.value=''};
 
+// ---- 실측 치수: 도면에 두 점을 찍고 직접 잰 값을 적음 ----
+const dcur=()=>D.find(o=>o.id===dsel);
+const dlen=o=>Math.round(Math.hypot(o.x2-o.x,o.y2-o.y));
+function ddraw(o){
+ let g=DG.get(o.id);
+ if(!g){g=el('g',{},DL);DG.set(o.id,g);g.addEventListener('pointerdown',e=>ddrag(e,o.id))}
+ g.innerHTML='';g.setAttribute('class','dd'+(o.id===dsel?' s':''));
+ const dx=o.x2-o.x,dy=o.y2-o.y,L=Math.hypot(dx,dy)||1,nx=-dy/L*60,ny=dx/L*60,mx=(o.x+o.x2)/2,my=(o.y+o.y2)/2;
+ let a=Math.atan2(dy,dx)*180/Math.PI;if(a>90)a-=180;else if(a<=-90)a+=180;
+ el('line',{x1:o.x,y1:o.y,x2:o.x2,y2:o.y2,class:'dh','stroke-width':px()*26},g);
+ el('line',{x1:o.x,y1:o.y,x2:o.x2,y2:o.y2,class:'dl'},g);
+ el('line',{x1:o.x-nx,y1:o.y-ny,x2:o.x+nx,y2:o.y+ny,class:'dl'},g);
+ el('line',{x1:o.x2-nx,y1:o.y2-ny,x2:o.x2+nx,y2:o.y2+ny,class:'dl'},g);
+ el('text',{x:mx,y:my-50,class:'dm',transform:`rotate(${a} ${mx} ${my})`},g,(o.n?o.n+' ':'')+(o.v||''));
+ if(o.id===dsel)[1,2].forEach(i=>el('circle',{cx:i===1?o.x:o.x2,cy:i===1?o.y:o.y2,r:px()*11,'stroke-width':px()*3,class:'dk'},g).addEventListener('pointerdown',e=>dend(e,o.id,i)));
+}
+function dclear(){if(dsel==null)return;const o=dcur();dsel=null;if(o)ddraw(o)}
+function dselect(id){
+ const o=dcur();dsel=id;sel=null;addOpen=lnOpen=cfgOpen=false;mEnd();undo=null;bclear();mark();if(o&&o.id!==id)ddraw(o);
+ const d=dcur();if(d){DL.appendChild(DG.get(id));ddraw(d)}
+ dock();
+}
+// 가로·세로에 가까우면 반듯하게
+function hv(ax,ay,x,y){const dx=x-ax,dy=y-ay;if(Math.abs(dx)<Math.abs(dy)*.18)x=ax;else if(Math.abs(dy)<Math.abs(dx)*.18)y=ay;return[x,y]}
+function dmove(e,o,mv){
+ const g=DG.get(o.id),k0=[o.x,o.y,o.x2,o.y2]+'';busy=o.id;
+ try{g.setPointerCapture(e.pointerId)}catch(_){}
+ const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);busy=null;if([o.x,o.y,o.x2,o.y2]+''!==k0){upd(o);dinfo()}};
+ g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up);
+}
+function ddrag(e,id){
+ if(mOpen)return;
+ e.stopPropagation();e.preventDefault();
+ if(dsel!==id||sel||bsel!=null||addOpen||lnOpen||cfgOpen)dselect(id);
+ const o=dcur();if(!o)return;const p=pt(e),x0=o.x,y0=o.y,x20=o.x2,y20=o.y2;
+ dmove(e,o,ev=>{const q=pt(ev),dx=sn(q.x-p.x),dy=sn(q.y-p.y);o.x=x0+dx;o.y=y0+dy;o.x2=x20+dx;o.y2=y20+dy;ddraw(o)});
+}
+function dend(e,id,i){
+ e.stopPropagation();e.preventDefault();
+ const o=D.find(o=>o.id===id);if(!o)return;
+ dmove(e,o,ev=>{const q=pt(ev);if(i===1)[o.x,o.y]=hv(o.x2,o.y2,sn(q.x),sn(q.y));else[o.x2,o.y2]=hv(o.x,o.y,sn(q.x),sn(q.y));ddraw(o)});
+}
+function dinfo(){const o=dcur(),i=$('di');if(o&&i)i.textContent=`도면상 길이 약 ${dlen(o)}mm · 양 끝 점을 끌어 위치를 맞추세요.`}
+function mEnd(){mOpen=false;mPts=[];DL.querySelectorAll('.mk').forEach(c=>c.remove())}
+// 실측 찍기: 첫 탭 = 시작점, 둘째 탭 = 끝점
+function mpoint(e){
+ const q=pt(e);let x=sn(q.x),y=sn(q.y);
+ if(!mPts.length){mPts.push({x,y});el('circle',{cx:x,cy:y,r:px()*7,class:'mk'},DL);panel();return}
+ const a=mPts[0];[x,y]=hv(a.x,a.y,x,y);if(x===a.x&&y===a.y)return;
+ const o={id:nid(),k:'dim',x:a.x,y:a.y,x2:x,y2:y,n:'',v:''};o.v=String(dlen(o));
+ mEnd();D.push(o);ddraw(o);upd(o);dselect(o.id);
+ const i=$('dv');if(i){i.focus();i.select()}
+}
+
 // ---- 지우기 = 휴지통으로 (언제든 복구) ----
-function unG(o){const m=o.k==='f'?G:BG,g=m.get(o.id);if(g){g.remove();m.delete(o.id)}}
+function unG(o){const m=o.k==='f'?G:o.k==='dim'?DG:BG,g=m.get(o.id);if(g){g.remove();m.delete(o.id)}}
 // 항목을 상태(d·k)에 맞는 목록으로 옮기고 다시 그림
 function place(o){
- const to=o.d?T:o.k==='f'?F:B;
- if(!to.includes(o)){[F,B,T].forEach(a=>{const i=a.indexOf(o);if(i>=0)a.splice(i,1)});to.push(o)}
- if(o.d){unG(o);if(sel===o.id)sel=null;if(bsel===o.id)bsel=null}
- else if(o.k==='f')draw(o);else{bdraw(o);needImg(o)}
+ const to=o.d?T:o.k==='f'?F:o.k==='dim'?D:B;
+ if(!to.includes(o)){[F,B,D,T].forEach(a=>{const i=a.indexOf(o);if(i>=0)a.splice(i,1)});to.push(o)}
+ if(o.d){unG(o);if(sel===o.id)sel=null;if(bsel===o.id)bsel=null;if(dsel===o.id)dsel=null}
+ else if(o.k==='f')draw(o);else if(o.k==='dim')ddraw(o);else{bdraw(o);needImg(o)}
 }
-function del(o){o.d=Date.now();upd(o);place(o);undo=o;sel=bsel=null;mark();dock()}
-function restore(o){delete o.d;upd(o);place(o);border();mark();o.k==='f'?select(o.id):bselect(o.id,true)}
+function del(o){o.d=Date.now();place(o);upd(o);undo=o;sel=bsel=dsel=null;mark();dock()}
+function restore(o){delete o.d;place(o);upd(o);border();mark();o.k==='f'?select(o.id):o.k==='dim'?dselect(o.id):bselect(o.id,true)}
 
 // ---- 백업 파일 (사진 포함) ----
 async function backup(){
@@ -306,7 +375,7 @@ async function restoreFile(file){
  if(!d||!Array.isArray(d.items))return alert('백업 파일을 읽을 수 없어요.');
  let n=0;
  for(const r of d.items){
-  if(!r||typeof r.id!=='string'||!(r.w>0&&r.h>0)||!['f','img','link'].includes(r.k))continue;
+  if(!r||typeof r.id!=='string'||!KINDS.includes(r.k)||!valid(r))continue;
   const o=find(r.id);if(o&&(o.t||0)>=(r.t||0))continue;
   const s=d.imgs&&d.imgs[r.id];if(typeof s==='string'&&s.startsWith('data:image/')){IM.set(r.id,s);idb('put',r.id,s).catch(()=>{})}
   const x=o||{id:r.id};FIELDS.forEach(k=>{if(r[k]!=null)x[k]=r[k];else delete x[k]});x.t=Date.now();place(x);n++;
@@ -358,7 +427,7 @@ function remote(id,r){
  if(!r){if(o&&!o.d){o.d=Date.now();o.t=o.d;place(o);return true}return false} // 서버에서 문서가 지워져도 휴지통에 남김
  const rt=r.t||0,s=sent.get(id);
  if(o){const lt=o.t||0;if(busy===id||(s!=null?lt>s:lt>rt))return false;if(lt===rt){sent.set(id,rt);return false}}
- if(!['f','img','link'].includes(r.k)||!(r.w>0&&r.h>0))return false;
+ if(!KINDS.includes(r.k)||!valid(r))return false;
  sent.set(id,rt);
  const n=o||{id};FIELDS.forEach(k=>{if(r[k]!=null)n[k]=r[k];else delete n[k]});
  if(n.k==='f')n.n=String(n.n||'가구');
@@ -370,7 +439,7 @@ function onSnap(snap){
  const first=!ready,ch=new Set();ready=true;clearTimeout(wt);
  if(first)snap.docs.forEach(d=>{if(remote(d.id,d.data()))ch.add(d.id)});
  else snap.docChanges().forEach(c=>{if(remote(c.doc.id,c.type==='removed'?null:c.doc.data()))ch.add(c.doc.id)});
- if(ch.size){border();mark();persist();list();if(ch.has(sel)||ch.has(bsel)||(sel&&!cur())||(bsel!=null&&!bcur())||cfgOpen)panel()}
+ if(ch.size){border();mark();persist();list();if(ch.has(sel)||ch.has(bsel)||ch.has(dsel)||(sel&&!cur())||(bsel!=null&&!bcur())||(dsel!=null&&!dcur())||cfgOpen)panel()}
  persistSent();
  if(first){B.forEach(o=>needImg(o));flush()} // 이 기기에만 있던 항목은 합쳐서 올림
  status(md.hasPendingWrites?'pend':md.fromCache?'off':'ok');
@@ -408,11 +477,11 @@ function share(){
 const PRE=[['식탁',2000,800],['퀸 침대',1500,2000],['3인 소파',2100,900],['옷장',1800,600],['책상',1200,600],['냉장고',900,800],['세탁기',600,650]];
 function dock(){list();panel()}
 function list(){
- $('ls').innerHTML='<button class="chip add" data-a="add">＋ 가구 추가</button><button class="chip add" data-a="photo">＋ 사진</button><button class="chip add" data-a="link">＋ 링크</button>'+F.map(f=>`<button class="chip${f.id===sel?' on':''}" data-id="${esc(f.id)}">${esc(f.n)}</button>`).join('')+B.map(b=>`<button class="chip${b.id===bsel?' on':''}" data-b="${esc(b.id)}">${esc(chipT(b))}</button>`).join('');
+ $('ls').innerHTML='<button class="chip add" data-a="add">＋ 가구 추가</button><button class="chip add" data-a="photo">＋ 사진</button><button class="chip add" data-a="link">＋ 링크</button><button class="chip add" data-a="dim">＋ 실측</button>'+F.map(f=>`<button class="chip${f.id===sel?' on':''}" data-id="${esc(f.id)}">${esc(f.n)}</button>`).join('')+B.map(b=>`<button class="chip${b.id===bsel?' on':''}" data-b="${esc(b.id)}">${esc(chipT(b))}</button>`).join('')+D.map(o=>`<button class="chip${o.id===dsel?' on':''}" data-d="${esc(o.id)}">${esc(dimT(o))}</button>`).join('');
  $('sy').classList.toggle('on',cfgOpen);
 }
 function panel(){
- const pn=$('pn'),f=cur(),bc=bcur();
+ const pn=$('pn'),f=cur(),bc=bcur(),dc=dcur();
  if(cfgOpen){
   const tr=[...T].sort((a,b)=>(b.d||0)-(a.d||0));
   pn.innerHTML=`<div class="ttl">저장 · 동기화</div><div class="sm" id="sst"></div>
@@ -438,6 +507,23 @@ function panel(){
   <div class="row"><button class="p" id="ok" style="flex:1">도면에 추가</button><button id="cx">닫기</button></div>`;
   ['an','aw','ah'].forEach(k=>$(k).oninput=()=>{addv={n:$('an').value,w:$('aw').value,h:$('ah').value}});
   $('ok').onclick=()=>add($('an').value.trim(),$('aw').value,$('ah').value);$('cx').onclick=()=>{addOpen=false;dock()};
+ }else if(mOpen){
+  pn.innerHTML=`<div class="ttl">실측 추가</div>
+  <div class="sm">${mPts.length?'이제 <b>끝점</b>을 탭하세요.':'도면에서 잰 구간의 <b>시작점</b>을 탭하세요.'} 가로·세로에 가까우면 반듯하게 맞춰져요. 확대해서 찍으면 더 정확해요.</div>
+  <div class="row"><button id="mcx">취소</button></div>`;
+  $('mcx').onclick=()=>{mEnd();dock()};
+ }else if(dc){
+  pn.innerHTML=`<div class="ttl"><b>실측</b> 수정</div>
+  <div class="row"><label>실측값 mm<input type="text" id="dv" inputmode="decimal" maxlength="20"></label><label class="n">이름<input type="text" id="dn" maxlength="30" placeholder="예: 창문 폭"></label></div>
+  <div class="row"><button id="dhz">가로로 맞춤</button><button id="dvt">세로로 맞춤</button><button id="dx" class="danger">삭제</button></div>
+  <div class="sm" id="di"></div>`;
+  $('dv').value=dc.v||'';$('dn').value=dc.n||'';dinfo();
+  const chip=()=>{const c=$('ls').querySelector('.chip.on');if(c)c.textContent=dimT(dc)};
+  $('dv').oninput=e=>{dc.v=e.target.value.trim().slice(0,20);ddraw(dc);upd(dc);chip()};
+  $('dn').oninput=e=>{dc.n=e.target.value.slice(0,30);ddraw(dc);upd(dc);chip()};
+  $('dhz').onclick=()=>{dc.y2=dc.y;ddraw(dc);upd(dc);dinfo()};
+  $('dvt').onclick=()=>{dc.x2=dc.x;ddraw(dc);upd(dc);dinfo()};
+  $('dx').onclick=()=>del(dc);
  }else if(lnOpen){
   pn.innerHTML=`<div class="ttl">상품 링크 추가</div>
   <div class="row"><label class="n">링크 주소<input type="url" id="lu" inputmode="url" placeholder="쇼핑 앱 공유 문구 그대로 붙여넣어도 돼요"></label></div>
@@ -485,7 +571,8 @@ function panel(){
  }else{
   pn.innerHTML=(undo&&undo.d?`<div class="row"><span class="sm" style="flex:1;margin:0">‘${esc(label(undo))}’ 삭제함 · 휴지통에 보관돼요</span><button id="ud">되돌리기</button></div>`:'')
    +(F.length?'<div class="sm">가구를 탭하면 크기·이름을 수정할 수 있어요.</div>':'<div class="sm">＋ 가구 추가를 눌러 이름과 가로·세로(mm)를 입력하세요.</div>')
-   +'<div class="sm">＋ 사진·＋ 링크: 도면을 보고 있으면 그 자리에 핀으로, 작업대를 보고 있으면 카드로 추가돼요.</div>';
+   +'<div class="sm">＋ 사진·＋ 링크: 도면을 보고 있으면 그 자리에 핀으로, 작업대를 보고 있으면 카드로 추가돼요.</div>'
+   +'<div class="sm">＋ 실측: 도면에서 두 점을 찍고 직접 잰 값을 적어요.</div>';
   const u=$('ud');if(u)u.onclick=()=>restore(undo);
  }
 }
@@ -494,12 +581,12 @@ function add(n,w,h){
  const f={id:nid(),k:'f',n:(n||'가구').slice(0,20),w:Math.max(50,+w||0),h:Math.max(50,+h||0),x:7400-(+w||500)/2|0,y:1500-(+h||500)/2|0};
  f.x=sn(f.x);f.y=sn(f.y);F.push(f);draw(f);upd(f);select(f.id);
 }
-$('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;if(a==='photo')return fi.click();if(a){addOpen=a==='add';lnOpen=a==='link';cfgOpen=false;undo=null;sel=null;bclear();mark();dock()}else if(b.dataset.b)bselect(b.dataset.b,true);else select(b.dataset.id)};
+$('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;if(a==='photo')return fi.click();if(a){mEnd();addOpen=a==='add';lnOpen=a==='link';mOpen=a==='dim';cfgOpen=false;undo=null;sel=null;bclear();dclear();mark();dock()}else if(b.dataset.b)bselect(b.dataset.b,true);else if(b.dataset.d)dselect(b.dataset.d);else select(b.dataset.id)};
 $('pn').onclick=e=>{
  const r=e.target.closest('[data-r]');if(r){const o=T.find(o=>o.id===r.dataset.r);if(o)restore(o);return}
  const b=e.target.closest('[data-pre]');if(!b)return;const[n,w,d]=PRE[+b.dataset.pre];addv={n,w,h:d};$('an').value=n;$('aw').value=w;$('ah').value=d};
 $('sn').onclick=e=>{snap=!snap;e.currentTarget.classList.toggle('on',snap)};
-$('sy').onclick=()=>{cfgOpen=!cfgOpen;if(cfgOpen){addOpen=lnOpen=false;sel=null;bclear();mark()}dock()};
+$('sy').onclick=()=>{cfgOpen=!cfgOpen;if(cfgOpen){addOpen=lnOpen=false;mEnd();sel=null;bclear();dclear();mark()}dock()};
 $('ov').onclick=()=>{$('ov').hidden=true};
 // ---- 확대·이동 ----
 const BB={x:-739,y:-5693,w:14381,h:11032};
@@ -512,13 +599,13 @@ const ctr=f=>{const r=box();zoomAt(f,r.left+r.width/2,r.top+r.height/2)};
 $('zi').onclick=()=>ctr(1/1.3);$('zo').onclick=()=>ctr(1.3);$('fit').onclick=()=>fit();$('wbb').onclick=()=>fit(WB);
 const P=new Map();let g0=null;
 document.querySelector('.hint').style.transition='opacity .6s';
-S.addEventListener('pointerdown',e=>{document.querySelector('.hint').style.opacity=0;if(e.target.closest('.f,.b'))return;try{S.setPointerCapture(e.pointerId)}catch(_){}P.set(e.pointerId,{x:e.clientX,y:e.clientY});if(P.size===1)g0={moved:false,sx:e.clientX,sy:e.clientY}});
+S.addEventListener('pointerdown',e=>{document.querySelector('.hint').style.opacity=0;if(!mOpen&&e.target.closest('.f,.b,.dd'))return;try{S.setPointerCapture(e.pointerId)}catch(_){}P.set(e.pointerId,{x:e.clientX,y:e.clientY});if(P.size===1)g0={moved:false,sx:e.clientX,sy:e.clientY}});
 S.addEventListener('pointermove',e=>{
  const p=P.get(e.pointerId);if(!p)return;const r=box(),n={x:e.clientX,y:e.clientY};
  if(P.size===1){if(Math.hypot(n.x-g0.sx,n.y-g0.sy)>6)g0.moved=true;if(g0.moved){v.x-=(n.x-p.x)*v.w/r.width;v.y-=(n.y-p.y)*v.h/r.height;ap()}}
  else if(P.size===2){g0.moved=true;const o=[...P].find(([k])=>k!==e.pointerId)[1];const d0=Math.hypot(p.x-o.x,p.y-o.y),d1=Math.hypot(n.x-o.x,n.y-o.y);if(d0&&d1)zoomAt(d0/d1,(n.x+o.x)/2,(n.y+o.y)/2)}
  P.set(e.pointerId,n)});
-const end=e=>{if(P.delete(e.pointerId)&&!P.size&&g0&&!g0.moved&&(sel||bsel!=null)){sel=null;bclear();mark();dock()}};
+const end=e=>{if(!(P.delete(e.pointerId)&&!P.size&&g0&&!g0.moved))return;if(mOpen)return mpoint(e);if(sel||bsel!=null||dsel!=null){sel=null;bclear();dclear();mark();dock()}};
 S.addEventListener('pointerup',end);S.addEventListener('pointercancel',end);
 S.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.deltaY>0?1.15:1/1.15,e.clientX,e.clientY)},{passive:false});
 try{new ResizeObserver(()=>{const r=box();if(r.width){v.h=v.w*r.height/r.width;ap()}}).observe(S)}catch(e){}
@@ -528,5 +615,5 @@ document.addEventListener('paste',e=>{const t=e.target;if(t&&t.matches&&t.matche
  const s=d.getData('text')||'',m=s.match(URL_RE);if(m){e.preventDefault();addLink(m[0],s.replace(m[0],' ').replace(/\s+/g,' ').trim(),'')}});
 $('pw').addEventListener('dragover',e=>e.preventDefault());
 $('pw').addEventListener('drop',e=>{e.preventDefault();const dt=e.dataTransfer,fs=[...dt.files].filter(f=>/^image\//.test(f.type));if(fs.length)return fs.forEach((f,i)=>addPhoto(f,i));const s=dt.getData('text/uri-list')||dt.getData('text');if(URL_RE.test(s))addLink(s,'','')});
-F.forEach(draw);B.sort(zs).forEach(bdraw);B.forEach(o=>needImg(o));persist();status('local');dock();fit();connect();
+F.forEach(draw);D.forEach(ddraw);B.sort(zs).forEach(bdraw);B.forEach(o=>needImg(o));persist();status('local');dock();fit();connect();
 </script></body></html>
