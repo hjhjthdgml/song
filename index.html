@@ -73,6 +73,10 @@ input[type=text],input[type=number],input[type=url]{font:inherit;font-size:16px;
 .ttl.gap{margin-top:14px}
 .trow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--rule);font-size:14px}
 .trow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow.h span{white-space:normal}
+.trow.h b{font-weight:700}
+details.adv{margin-top:8px;font-size:13px;color:var(--sub)}
+details.adv summary{cursor:pointer;padding:4px 0}
 .th{display:block;max-width:100%;max-height:140px;border-radius:8px;margin-top:6px;cursor:zoom-in}
 .ov{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:12px}
 .ov img{max-width:100%;max-height:100%}
@@ -81,7 +85,7 @@ input[type=text],input[type=number],input[type=url]{font:inherit;font-size:16px;
 <body>
 <header class="top"><h1>실측 평면도</h1>
 <button id="sn" class="on" title="50mm 단위로 맞춤">맞춤</button><button id="fit">전체</button><button id="wbb" title="사진·링크 모아두는 곳">작업대</button><button id="zo" aria-label="축소">−</button><button id="zi" aria-label="확대">＋</button><button id="sy" class="sy" aria-label="저장·동기화"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18.5h10.2a4.3 4.3 0 0 0 .6-8.55A6.2 6.2 0 0 0 5.9 9.4 4.6 4.6 0 0 0 7 18.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></header>
-<div class="plan" id="pw"><svg id="p" viewBox="-739 -5693 14381 11032" role="img" aria-label="실측 평면도"></svg><div class="hint">두 손가락 확대 · 빈 곳 끌어서 이동</div></div>
+<div class="plan" id="pw"><svg id="p" viewBox="-739 -5693 14381 11032" preserveAspectRatio="xMinYMin meet" role="img" aria-label="실측 평면도"></svg><div class="hint">두 손가락 확대 · 빈 곳 끌어서 이동</div></div>
 <input type="file" id="fi" accept="image/*" multiple hidden><input type="file" id="bkf" accept="application/json,.json" hidden>
 <div class="ov" id="ov" hidden><img id="ovi" alt="크게 보기"></div>
 <section class="dock"><div class="list" id="ls"></div><div id="pn"></div></section>
@@ -105,6 +109,7 @@ const valid=o=>!!o&&(o.k==='dim'?[o.x,o.y,o.x2,o.y2].every(Number.isFinite):o.w>
 const nid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const ld=k=>{try{const d=JSON.parse(localStorage.getItem(k)||'[]');return Array.isArray(d)?d.filter(valid):[]}catch(e){return[]}};
 const F=ld('furn'),B=ld('board').filter(b=>b.k==='img'||b.k==='link'),D=ld('dims').filter(o=>o.k==='dim'||o.k==='zone'),T=ld('trash');
+for(const o of ld('board'))if(o.k==='zone'&&!D.some(x=>x.id===o.id))D.push(o);
 F.forEach(f=>{f.k='f';f.n=String(f.n||'가구')});
 // 예전 숫자 id → 기기끼리 겹치지 않는 문자열 id (사진은 ok에 옛 키를 남겨 옮겨 옴)
 [...F,...B,...D,...T].forEach(o=>{if(typeof o.id!=='string'){if(o.k==='img')o.ok=o.id;o.id=nid()}});
@@ -133,7 +138,7 @@ const pick=o=>{const r={};FIELDS.forEach(k=>{if(o[k]!==undefined)r[k]=o[k]});ret
 const persist=()=>{try{localStorage.setItem('furn',JSON.stringify(F));localStorage.setItem('board',JSON.stringify(B));localStorage.setItem('dims',JSON.stringify(D));localStorage.setItem('trash',JSON.stringify(T));return true}catch(e){status('full');return false}};
 let ft=0;
 const save=()=>{const ok=persist();clearTimeout(ft);ft=setTimeout(flush,300);return ok};
-const upd=o=>{o.t=Date.now();return save()};
+const upd=o=>{o.t=Date.now();histLater();return save()};
 
 // ---- 가구 ----
 const cur=()=>F.find(f=>f.id===sel);
@@ -177,7 +182,8 @@ const tw=t=>[...t].reduce((s,c)=>s+(c.charCodeAt(0)>255?1:.58),0);
 function clip(t,w,fs){t=String(t||'');if(tw(t)*fs<=w)return t;const a=[...t];while(a.length&&tw(a.join('')+'…')*fs>w)a.pop();return a.join('')+'…'}
 const chipT=b=>(b.k==='img'?'📷 ':'🔗 ')+(b.n||(b.k==='img'?'사진':host(b.u)||'링크'));
 const dimT=o=>(o.k==='zone'?'▭ ':'📏 ')+[o.n,o.v].filter(Boolean).join(' ');
-const label=o=>o.k==='f'?o.n:o.k==='dim'?dimT(o):chipT(o);
+const isM=o=>o.k==='dim'||o.k==='zone'; // 실측 치수선·영역 상자
+const label=o=>o.k==='f'?o.n:isM(o)?dimT(o):chipT(o);
 const px=()=>{const r=box();return r.width?v.w/r.width:10};
 const hs=()=>px()*30;
 function bdraw(b){
@@ -360,16 +366,16 @@ function mpoint(e){
 }
 
 // ---- 지우기 = 휴지통으로 (언제든 복구) ----
-function unG(o){const m=o.k==='f'?G:o.k==='dim'?DG:BG,g=m.get(o.id);if(g){g.remove();m.delete(o.id)}}
+function unG(o){const m=o.k==='f'?G:isM(o)?DG:BG,g=m.get(o.id);if(g){g.remove();m.delete(o.id)}}
 // 항목을 상태(d·k)에 맞는 목록으로 옮기고 다시 그림
 function place(o){
- const to=o.d?T:o.k==='f'?F:o.k==='dim'?D:B;
+ const to=o.d?T:o.k==='f'?F:isM(o)?D:B;
  if(!to.includes(o)){[F,B,D,T].forEach(a=>{const i=a.indexOf(o);if(i>=0)a.splice(i,1)});to.push(o)}
  if(o.d){unG(o);if(sel===o.id)sel=null;if(bsel===o.id)bsel=null;if(dsel===o.id)dsel=null}
- else if(o.k==='f')draw(o);else if(o.k==='dim')ddraw(o);else{bdraw(o);needImg(o)}
+ else if(o.k==='f')draw(o);else if(isM(o))ddraw(o);else{bdraw(o);needImg(o)}
 }
 function del(o){o.d=Date.now();place(o);upd(o);undo=o;sel=bsel=dsel=null;mark();dock()}
-function restore(o){delete o.d;place(o);upd(o);border();mark();o.k==='f'?select(o.id):o.k==='dim'?dselect(o.id):bselect(o.id,true)}
+function restore(o){delete o.d;place(o);upd(o);border();mark();o.k==='f'?select(o.id):isM(o)?dselect(o.id):bselect(o.id,true)}
 
 // ---- 백업 파일 (사진 포함) ----
 async function backup(){
@@ -404,9 +410,12 @@ const FB_CONFIG={
  appId:'1:272717682230:web:7fdf553c9c00cb08876a97'
 };
 const FBV='12.19.0';
+// 이 사이트를 연 기기는 모두 이 방으로 자동 동기화 (다른 코드를 직접 넣으면 그 방을 씀)
+const DEFAULT_ROOM='songTttd1r8ey9XS73K6Qr4F';
 let db=null,FS=null,dbp=null,unsub=null,ready=false,waited=false,last=null,wt=0,room=null,sent=new Map(),sstate='local',smsg='';
-try{room=localStorage.getItem('room')}catch(e){}
-{const m=location.hash.match(/[#&]s=([A-Za-z0-9_-]{16,64})/);if(m){room=m[1];try{localStorage.setItem('room',room)}catch(e){}history.replaceState(null,'',location.pathname+location.search)}}
+try{room=localStorage.getItem('room2')}catch(e){}
+{const m=location.hash.match(/[#&]s=([A-Za-z0-9_-]{16,64})/);if(m){room=m[1];try{localStorage.setItem('room2',room)}catch(e){}history.replaceState(null,'',location.pathname+location.search)}}
+room=room==='off'?null:room||DEFAULT_ROOM;
 const STX={local:'이 기기(브라우저)에만 자동 저장 중',conn:'동기화 연결 중…',ok:'실시간 동기화됨 · 자동 저장',pend:'저장 중…',off:'오프라인 · 기기에 저장해 두고 연결되면 자동으로 올려요',err:'동기화 오류',full:'기기 저장 공간이 부족해요 · 백업 파일을 저장해 두세요'};
 function status(s,m){sstate=s;smsg=m||'';const b=$('sy'),t=STX[s]+(smsg?' · '+smsg:'');if(b){b.dataset.s=s;b.title=t}const e=$('sst');if(e)e.textContent=t}
 const persistSent=()=>{try{localStorage.setItem('sent:'+room,JSON.stringify(Object.fromEntries(sent)))}catch(e){}};
@@ -448,9 +457,11 @@ function onSnap(snap){
  const first=!ready,ch=new Set();ready=true;clearTimeout(wt);
  if(first)snap.docs.forEach(d=>{if(remote(d.id,d.data()))ch.add(d.id)});
  else snap.docChanges().forEach(c=>{if(remote(c.doc.id,c.type==='removed'?null:c.doc.data()))ch.add(c.doc.id)});
- if(ch.size){border();mark();persist();list();if(ch.has(sel)||ch.has(bsel)||ch.has(dsel)||(sel&&!cur())||(bsel!=null&&!bcur())||(dsel!=null&&!dcur())||cfgOpen)panel()}
+ if(ch.size){border();mark();persist();list();if(ch.has(sel)||ch.has(bsel)||ch.has(dsel)||(sel&&!cur())||(bsel!=null&&!bcur())||(dsel!=null&&!dcur()))panel()}
  persistSent();
- if(first){B.forEach(o=>needImg(o));flush()} // 이 기기에만 있던 항목은 합쳐서 올림
+ if(first){B.forEach(o=>needImg(o));flush(); // 이 기기에만 있던 항목은 합쳐서 올림
+  base=stateMap();const r=room;FS.getDocs(FS.query(FS.collection(db,'rooms',r,'hist'),FS.limit(1))).then(s=>{if(s.empty&&r===room)snapshot('처음 상태')}).catch(()=>{});
+  if(cfgOpen)loadHist()}
  status(md.hasPendingWrites?'pend':md.fromCache?'off':'ok');
 }
 async function upImg(o){
@@ -473,8 +484,58 @@ function flush(){
  wb.commit().catch(e=>{ids.forEach(id=>sent.delete(id));persistSent();status('err',e.code==='permission-denied'?'Firestore 규칙을 확인해 주세요':e.code||e.message)});
  if(ids.length>=400)setTimeout(flush,50);
 }
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flush()});
-function setRoom(c){room=c;try{c?localStorage.setItem('room',c):localStorage.removeItem('room')}catch(e){}connect();dock()}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){if(ht)snapshot();flush()}});
+function setRoom(c){if(ht)snapshot();room=c;try{localStorage.setItem('room2',c||'off')}catch(e){}connect();dock()}
+
+// ---- 변경 이력: 이 기기에서 바꾸고 잠시 멈추면 전체 상태를 한 장씩 남김. 아무 시점으로나 되돌릴 수 있음 ----
+let HIST_IDLE=15000,ht=0,base=null,HIST=[];
+const DEV=(u=>/iPhone/.test(u)?'아이폰':/iPad/.test(u)?'아이패드':/Android/.test(u)?'안드로이드':/Macintosh/.test(u)?'Mac':/Windows/.test(u)?'PC':'기기')(navigator.userAgent);
+const live=()=>[...F,...B,...D];
+const sig=(o,skip)=>JSON.stringify(FIELDS.filter(k=>!skip.includes(k)).map(k=>o[k]??null));
+const stateMap=()=>new Map(live().map(o=>[o.id,{id:o.id,...pick(o)}]));
+function summary(prev,cur){
+ const out=[],nm=o=>label(o)||'항목';
+ cur.forEach((o,id)=>{const p=prev.get(id);if(!p)return out.push(nm(o)+' 추가');if(sig(p,['t','z'])===sig(o,['t','z']))return;
+  const mv=sig(p,['t','z','x','y','x2','y2'])===sig(o,['t','z','x','y','x2','y2']);out.push(nm(o)+(mv?' 이동':' 수정'))});
+ prev.forEach((o,id)=>{if(!cur.has(id))out.push(nm(o)+' 삭제')});
+ return out.length?out.slice(0,3).join(' · ')+(out.length>3?` 외 ${out.length-3}개`:''):'';
+}
+function histLater(){clearTimeout(ht);ht=setTimeout(()=>snapshot(),HIST_IDLE)}
+function snapshot(note){
+ clearTimeout(ht);ht=0;
+ if(!db||!ready||!room)return false;
+ const cur=stateMap(),sum=note||summary(base||new Map(),cur);
+ if(!sum)return false;
+ base=cur;
+ FS.setDoc(FS.doc(db,'rooms',room,'hist',nid()),{t:Date.now(),dev:DEV,sum,items:[...cur.values()]}).catch(e=>console.error(e));
+ return true;
+}
+const fmt=t=>{const d=new Date(t),p=n=>String(n).padStart(2,'0'),hm=`${p(d.getHours())}:${p(d.getMinutes())}`;return d.toDateString()===new Date().toDateString()?'오늘 '+hm:`${d.getMonth()+1}/${d.getDate()} ${hm}`};
+async function loadHist(){
+ const box=$('hl');if(!box)return;
+ if(!db||!ready||!room){box.innerHTML='<div class="sm">동기화가 연결되면 이력을 볼 수 있어요.</div>';return}
+ if(ht)snapshot();
+ box.innerHTML='<div class="sm">불러오는 중…</div>';
+ let s;try{s=await FS.getDocs(FS.query(FS.collection(db,'rooms',room,'hist'),FS.orderBy('t','desc'),FS.limit(100)))}catch(e){box.innerHTML='<div class="sm">이력을 불러오지 못했어요.</div>';return}
+ if(!$('hl'))return;
+ HIST=s.docs.map(d=>d.data()).filter(h=>h&&Array.isArray(h.items));
+ $('hl').innerHTML=HIST.length?HIST.map((h,i)=>`<div class="trow h"><span><b>${fmt(h.t)}</b> · ${esc(h.dev||'')}<br>${esc(h.sum||'')}</span><button data-h="${i}">이 시점으로</button></div>`).join(''):'<div class="sm">아직 이력이 없어요. 배치를 바꾸면 자동으로 쌓여요.</div>';
+}
+function revert(h){
+ if(!confirm(`${fmt(h.t)} 상태로 되돌릴까요?\n지금 상태도 이력에 남아서 언제든 다시 돌아올 수 있어요.`))return;
+ snapshot('되돌리기 전 상태');
+ const keep=new Set(),now=Date.now();
+ for(const r of h.items){
+  if(!r||typeof r.id!=='string'||!KINDS.includes(r.k)||!valid(r))continue;
+  keep.add(r.id);const o=find(r.id);
+  if(o&&!o.d&&sig(o,['t'])===sig(r,['t']))continue;
+  const x=o||{id:r.id};FIELDS.forEach(k=>{if(r[k]!=null)x[k]=r[k];else delete x[k]});x.t=now;place(x);
+ }
+ live().forEach(o=>{if(!keep.has(o.id)){o.d=now;o.t=now;place(o)}});
+ sel=bsel=dsel=null;border();mark();save();
+ snapshot(`${fmt(h.t)} 상태로 되돌림`);
+ dock();loadHist();
+}
 const code=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';return[...crypto.getRandomValues(new Uint8Array(20))].map(x=>a[x%a.length]).join('')};
 function share(){
  const u=location.origin+location.pathname+'#s='+room;
@@ -494,8 +555,11 @@ function panel(){
  if(cfgOpen){
   const tr=[...T].sort((a,b)=>(b.d||0)-(a.d||0));
   pn.innerHTML=`<div class="ttl">저장 · 동기화</div><div class="sm" id="sst"></div>
-  ${FB_CONFIG?`<div class="row"><label class="n">동기화 코드 · 같은 코드를 넣은 기기끼리 실시간으로 맞춰져요<input type="text" id="rc" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="영문·숫자 16자 이상"></label></div>
-  <div class="row"><button class="p" id="rcon">연결</button><button id="rnew">새 코드 만들기</button><button id="rsh"${room?'':' hidden'}>공유 링크 복사</button><button id="rdis"${room?'':' hidden'}>연결 끊기</button></div>`:'<div class="sm">실시간 동기화는 Firebase 설정을 넣으면 켜져요.</div>'}
+  ${FB_CONFIG?`<div class="sm">${room?'따로 설정할 것 없이 자동으로 저장·동기화돼요. 이 사이트를 연 기기끼리 같은 배치를 봐요.':'동기화가 꺼져 있어요. 아래 고급 설정에서 다시 연결할 수 있어요.'}</div>
+  <div class="ttl gap">변경 이력</div><div class="sm">바꾸고 잠시 지나면 자동으로 기록돼요. 원하는 시점을 골라 되돌릴 수 있어요.</div><div id="hl"></div>
+  <details class="adv"><summary>고급: 동기화 코드</summary>
+  <div class="row"><label class="n">동기화 코드 · 같은 코드를 쓰는 기기끼리 맞춰져요<input type="text" id="rc" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="영문·숫자 16자 이상"></label></div>
+  <div class="row"><button class="p" id="rcon">연결</button><button id="rnew">새 코드 만들기</button><button id="rdef">기본 코드로</button><button id="rsh"${room?'':' hidden'}>공유 링크 복사</button><button id="rdis"${room?'':' hidden'}>동기화 끄기</button></div></details>`:'<div class="sm">실시간 동기화는 Firebase 설정을 넣으면 켜져요.</div>'}
   <div class="ttl gap">백업</div>
   <div class="row"><button id="bkx">백업 파일 저장</button><button id="bki">백업 불러오기</button></div>
   <div class="sm">사진까지 파일 하나로 저장돼요. 불러오면 지금 배치에 합쳐져요 (지워지지 않음).</div>
@@ -506,8 +570,10 @@ function panel(){
    $('rc').value=room||'';
    $('rcon').onclick=()=>{const c=$('rc').value.trim();if(!/^[A-Za-z0-9_-]{16,64}$/.test(c))return alert('동기화 코드는 영문·숫자 16자 이상이어야 해요. "새 코드 만들기"를 눌러도 돼요.');setRoom(c)};
    $('rnew').onclick=()=>{$('rc').value=code()};
+   $('rdef').onclick=()=>setRoom(DEFAULT_ROOM);
+   loadHist();
    $('rsh').onclick=share;
-   $('rdis').onclick=()=>{if(confirm('이 기기의 동기화를 끊을까요? 지금 배치는 이 기기에 그대로 남아요.'))setRoom(null)};
+   $('rdis').onclick=()=>{if(confirm('이 기기의 동기화를 끌까요? 지금 배치는 이 기기에 그대로 남아요.'))setRoom(null)};
   }
   $('bkx').onclick=backup;$('bki').onclick=()=>bkf.click();
  }else if(addOpen){
@@ -608,6 +674,7 @@ function add(n,w,h){
 $('ls').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;if(a==='photo')return fi.click();if(a){mEnd();addOpen=a==='add';lnOpen=a==='link';mOpen=a==='dim';mKind='dim';cfgOpen=false;undo=null;sel=null;bclear();dclear();mark();dock()}else if(b.dataset.b)bselect(b.dataset.b,true);else if(b.dataset.d)dselect(b.dataset.d);else select(b.dataset.id)};
 $('pn').onclick=e=>{
  const r=e.target.closest('[data-r]');if(r){const o=T.find(o=>o.id===r.dataset.r);if(o)restore(o);return}
+ const hb=e.target.closest('[data-h]');if(hb){const h=HIST[+hb.dataset.h];if(h)revert(h);return}
  const b=e.target.closest('[data-pre]');if(!b)return;const[n,w,d]=PRE[+b.dataset.pre];addv={n,w,h:d};$('an').value=n;$('aw').value=w;$('ah').value=d};
 $('sn').onclick=e=>{snap=!snap;e.currentTarget.classList.toggle('on',snap)};
 $('sy').onclick=()=>{cfgOpen=!cfgOpen;if(cfgOpen){addOpen=lnOpen=false;mEnd();sel=null;bclear();dclear();mark()}dock()};
