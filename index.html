@@ -460,7 +460,7 @@ function onSnap(snap){
  if(ch.size){border();mark();persist();list();if(ch.has(sel)||ch.has(bsel)||ch.has(dsel)||(sel&&!cur())||(bsel!=null&&!bcur())||(dsel!=null&&!dcur()))panel()}
  persistSent();
  if(first){B.forEach(o=>needImg(o));flush(); // 이 기기에만 있던 항목은 합쳐서 올림
-  base=stateMap();const r=room;FS.getDocs(FS.query(FS.collection(db,'rooms',r,'hist'),FS.limit(1))).then(s=>{if(s.empty&&r===room)snapshot('처음 상태')}).catch(()=>{});
+  base=stateMap();const r=room,b0=base,t0=Date.now();FS.getDocs(FS.query(FS.collection(db,'rooms',r,'hist'),FS.limit(1))).then(s=>{if(s.empty&&r===room)saveHist('처음 상태',b0,t0)}).catch(()=>{});
   if(cfgOpen)loadHist()}
  status(md.hasPendingWrites?'pend':md.fromCache?'off':'ok');
 }
@@ -506,10 +506,10 @@ function snapshot(note){
  if(!db||!ready||!room)return false;
  const cur=stateMap(),sum=note||summary(base||new Map(),cur);
  if(!sum)return false;
- base=cur;
- FS.setDoc(FS.doc(db,'rooms',room,'hist',nid()),{t:Date.now(),dev:DEV,sum,items:[...cur.values()]}).catch(e=>console.error(e));
+ base=cur;saveHist(sum,cur);
  return true;
 }
+function saveHist(sum,map,t){FS.setDoc(FS.doc(db,'rooms',room,'hist',nid()),{t:t||Date.now(),dev:DEV,sum,items:[...map.values()]}).catch(e=>console.error(e))}
 const fmt=t=>{const d=new Date(t),p=n=>String(n).padStart(2,'0'),hm=`${p(d.getHours())}:${p(d.getMinutes())}`;return d.toDateString()===new Date().toDateString()?'오늘 '+hm:`${d.getMonth()+1}/${d.getDate()} ${hm}`};
 async function loadHist(){
  const box=$('hl');if(!box)return;
